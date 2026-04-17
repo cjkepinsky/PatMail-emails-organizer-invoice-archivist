@@ -215,8 +215,22 @@ textarea {
 
 .plain-list li,
 .provider-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 10px 0;
   border-bottom: 1px solid #e4ebe2;
+}
+
+.small-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #b9c6bb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #17201b;
+  cursor: pointer;
 }
 
 .provider-list strong {

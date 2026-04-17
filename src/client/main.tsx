@@ -161,6 +161,12 @@ function App() {
     setAnswer(result.answer || result.error || "Brak odpowiedzi.");
   }
 
+  async function disconnectAccount(accountId: string) {
+    await api(`/api/accounts/${accountId}`, { method: "DELETE" });
+    await load();
+    setStatus("Konto odłączone. Podłącz je ponownie, żeby odświeżyć zakresy OAuth.");
+  }
+
   if (!settings) {
     return <main className="shell">Ładuję lokalny panel...</main>;
   }
@@ -288,7 +294,12 @@ function App() {
           ) : (
             <ul className="plain-list">
               {accounts.map(account => (
-                <li key={account.id}>{account.email}</li>
+                <li key={account.id}>
+                  <span>{account.email}</span>
+                  <button className="small-button" onClick={() => void disconnectAccount(account.id)}>
+                    Odłącz
+                  </button>
+                </li>
               ))}
             </ul>
           )}

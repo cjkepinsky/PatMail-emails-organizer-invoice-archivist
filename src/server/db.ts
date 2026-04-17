@@ -236,6 +236,12 @@ export function updateAccountTokens(id: string, tokensJson: string) {
   db.prepare("UPDATE gmail_accounts SET tokens_json = ?, updated_at = ? WHERE id = ?").run(tokensJson, now(), id);
 }
 
+export function deleteAccount(id: string) {
+  db.prepare("DELETE FROM important_items WHERE account_id = ?").run(id);
+  db.prepare("DELETE FROM mail_cache WHERE account_id = ?").run(id);
+  db.prepare("DELETE FROM gmail_accounts WHERE id = ?").run(id);
+}
+
 export function listProviders(): ProviderRule[] {
   return db.prepare("SELECT * FROM providers ORDER BY name").all().map(mapProvider);
 }

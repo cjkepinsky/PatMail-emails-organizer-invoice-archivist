@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { serverConfig } from "./config.js";
 import {
   createJob,
+  deleteAccount,
   getAppSettings,
   getJob,
   initDefaults,
@@ -61,6 +62,11 @@ app.post("/api/settings", (req, res) => {
 });
 
 app.get("/api/accounts", (_req, res) => {
+  res.json(publicAccounts());
+});
+
+app.delete("/api/accounts/:id", (req, res) => {
+  deleteAccount(req.params.id);
   res.json(publicAccounts());
 });
 
