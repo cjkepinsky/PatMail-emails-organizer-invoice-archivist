@@ -1,5 +1,8 @@
 import { getAppSettings } from "./db.js";
 
+const modelCache = new Map<string, { models: string[]; expiresAt: number }>();
+const MODEL_CACHE_MS = 60_000;
+
 export type MailClassification = {
   priority: "high" | "medium" | "low";
   category: string;
@@ -51,7 +54,7 @@ export async function classifyMailWithLlm(input: {
           from: input.from,
           subject: input.subject,
           snippet: input.snippet,
-          text: input.text.slice(0, 12000)
+          text: input.text.slice(0, 2500)
         },
         expected_json_schema: {
           priority: "high | medium | low",
@@ -67,14 +70,18 @@ export async function classifyMailWithLlm(input: {
   ];
 
   try {
-    const data = await chatCompletion(settings, messages, { temperature: 0.1, responseFormatJson: true });
+    const data = await chatCompletion(settings, messages, {
+      temperature: 0,
+      responseFormatJson: true,
+      maxTokens: 180
+    });
     return normalizeClassification(parseJsonObject(data));
   } catch {
     return null;
   }
 }
 
-export async function chatWithMailbox(input: { question: string; context: unknown[] }) {
+export async function chatWithMailbox(input: { question: string; context: unknown }) {
   const settings = getAppSettings();
   if (!settings.llmBaseUrl) {
     return "Nie skonfigurowano lokalnego modelu LLM.";
@@ -84,7 +91,7 @@ export async function chatWithMailbox(input: { question: string; context: unknow
     {
       role: "system",
       content:
-        "Jesteś lokalnym asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost."
+        "Jesteś lokalnym asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania."
     },
     {
       role: "user",
@@ -95,13 +102,17 @@ export async function chatWithMailbox(input: { question: string; context: unknow
     }
   ];
 
-  return chatCompletion(settings, messages, { temperature: 0.2, responseFormatJson: false });
+  return chatCompletion(settings, messages, {
+    temperature: 0.1,
+    responseFormatJson: false,
+    maxTokens: 700
+  });
 }
 
 async function chatCompletion(
   settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
   messages: Array<{ role: string; content: string }>,
-  options: { temperature: number; responseFormatJson: boolean }
+  options: { temperature: number; responseFormatJson: boolean; maxTokens: number }
 ) {
   const baseUrl = normalizeBaseUrl(settings.llmBaseUrl);
   const model = await resolveLoadedModel(settings, baseUrl);
@@ -116,6 +127,7 @@ async function chatCompletion(
       model,
       messages,
       temperature: options.temperature,
+      max_tokens: options.maxTokens,
       ...(options.responseFormatJson ? { response_format: { type: "json_object" } } : {})
     })
   });
@@ -147,6 +159,9 @@ async function listLoadedModels(
   settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
   baseUrl: string
 ) {
+  const cached = modelCache.get(baseUrl);
+  if (cached && cached.expiresAt > Date.now()) return cached.models;
+
   const response = await fetch(`${baseUrl}/models`, {
     headers: {
       ...(settings.llmApiKey ? { Authorization: `Bearer ${settings.llmApiKey}` } : {})
@@ -160,7 +175,9 @@ async function listLoadedModels(
   }
 
   const json = (await response.json()) as { data?: Array<{ id?: string }> };
-  return (json.data || []).map(model => model.id).filter(Boolean) as string[];
+  const models = (json.data || []).map(model => model.id).filter(Boolean) as string[];
+  modelCache.set(baseUrl, { models, expiresAt: Date.now() + MODEL_CACHE_MS });
+  return models;
 }
 
 function selectModel(modelIds: string[], configuredModel: string) {

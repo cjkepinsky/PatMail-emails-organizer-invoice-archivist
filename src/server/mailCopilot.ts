@@ -122,18 +122,23 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
 }
 
 export function getChatContext(question: string) {
-  const like = `%${question.replace(/[%_]/g, " ")}%`;
+  const like = `%${question.replace(/[%_]/g, " ").slice(0, 80)}%`;
   const recentImportant = db
     .prepare(
-      "SELECT from_email, from_name, subject, snippet, received_at, priority, category, summary, action_required, due_date, amount, currency FROM important_items ORDER BY received_at DESC LIMIT 40"
+      "SELECT from_email, from_name, subject, received_at, priority, category, summary, action_required, due_date, amount, currency FROM important_items ORDER BY received_at DESC LIMIT 12"
     )
     .all();
   const textMatches = db
     .prepare(
-      "SELECT from_email, from_name, subject, snippet, received_at, substr(text, 1, 2500) AS text FROM mail_cache WHERE subject LIKE ? OR from_email LIKE ? OR text LIKE ? ORDER BY received_at DESC LIMIT 15"
+      "SELECT from_email, from_name, subject, received_at, substr(text, 1, 900) AS text FROM mail_cache WHERE subject LIKE ? OR from_email LIKE ? OR text LIKE ? ORDER BY received_at DESC LIMIT 4"
     )
     .all(like, like, like);
-  return [{ recentImportant }, { textMatches }];
+  return {
+    recentImportant,
+    focusedMatches: textMatches,
+    contextPolicy:
+      "recentImportant zawiera najważniejsze ostatnie wiadomości; focusedMatches to krótkie fragmenty pasujące do pytania. Odpowiadaj zwięźle."
+  };
 }
 
 function cacheMail(input: {
