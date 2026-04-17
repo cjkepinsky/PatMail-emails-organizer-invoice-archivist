@@ -28,6 +28,29 @@ Otwórz:
 http://127.0.0.1:5181
 ```
 
+Jeśli nie chcesz blokować terminala, uruchom tryb w tle:
+
+```bash
+npm run dev:start
+npm run dev:status
+npm run dev:stop
+npm run dev:restart
+```
+
+Log procesu w tle trafia do:
+
+```text
+.local/dev.log
+```
+
+Jeśli zmienisz scope'y OAuth albo utworzysz nowego klienta Google, usuń stare lokalne tokeny:
+
+```bash
+npm run auth:reset
+```
+
+Potem uruchom aplikację i podłącz Gmail jeszcze raz.
+
 ## Google OAuth
 
 W Google Cloud Console utwórz OAuth client i dodaj redirect URI:

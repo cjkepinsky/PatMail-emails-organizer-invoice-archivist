@@ -7,7 +7,11 @@
     "api": "tsx watch src/server/index.ts",
     "web": "vite --host 127.0.0.1",
     "dev": "concurrently \"npm run api\" \"npm run web\"",
+    "dev:start": "node scripts/start-dev.mjs",
     "dev:stop": "node scripts/stop-dev.mjs",
+    "dev:status": "node scripts/status-dev.mjs",
+    "dev:restart": "npm run dev:stop && npm run dev:start",
+    "auth:reset": "node scripts/reset-auth.mjs",
     "build": "tsc --noEmit && vite build",
     "start": "tsx src/server/index.ts"
   },

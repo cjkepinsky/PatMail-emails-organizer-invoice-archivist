@@ -1,34 +1,44 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { describeStatus, portPids, processTable, relatedDevPids, removePid } from "./dev-utils.mjs";
 
-const execFileAsync = promisify(execFile);
-const ports = ["8797", "5181"];
+const status = await describeStatus();
+const targets = new Set(status.listeningPids);
+if (status.pid) targets.add(status.pid);
 
-try {
-  const { stdout } = await execFileAsync("lsof", ["-ti", ...ports.flatMap(port => ["tcp:" + port])]);
-  const pids = stdout
-    .split(/\s+/)
-    .map(value => Number(value))
-    .filter(Boolean);
+if (targets.size > 0) {
+  const table = await processTable();
+  for (const pid of relatedDevPids(table, [...targets])) targets.add(pid);
+}
 
-  if (pids.length === 0) {
-    console.log("No Invoice Archivist dev processes found.");
-    process.exit(0);
+if (targets.size === 0) {
+  console.log("No Invoice Archivist dev processes found.");
+  removePid();
+  process.exit(0);
+}
+
+for (const pid of targets) {
+  stopPid(pid, "SIGTERM");
+}
+
+await wait(800);
+
+const remaining = await portPids();
+if (remaining.length > 0) {
+  const table = await processTable();
+  const remainingTargets = relatedDevPids(table, remaining);
+  for (const pid of remainingTargets) stopPid(pid, "SIGKILL");
+}
+
+removePid();
+console.log("Invoice Archivist dev server stopped.");
+
+function stopPid(pid, signal = "SIGTERM") {
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Already gone.
   }
+}
 
-  for (const pid of new Set(pids)) {
-    try {
-      process.kill(pid, "SIGTERM");
-      console.log(`Stopped process ${pid}.`);
-    } catch (error) {
-      console.warn(`Could not stop process ${pid}: ${error.message}`);
-    }
-  }
-} catch (error) {
-  if (error.code === 1) {
-    console.log("No Invoice Archivist dev processes found.");
-    process.exit(0);
-  }
-  console.error(error.message);
-  process.exit(1);
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
