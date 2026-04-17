@@ -12,6 +12,7 @@ Lokalna aplikacja do archiwizacji faktur z Gmaila i cichego, konwersacyjnego pod
 - Indeks SQLite dla deduplikacji po Gmail message id, attachment id i SHA-256.
 - Ekstrakcja daty faktury, terminu płatności, kwoty i numeru faktury w prostym parserze tekstowym.
 - Ustawienie OpenAI-compatible LLM w LAN, domyślnie `http://192.168.1.90:1234`.
+- LLM używa `GET /v1/models` i wybiera już załadowany model; ustaw `LLM_MODEL=auto`, żeby nie wymuszać ładowania po nazwie.
 - Cichy feed ważnych maili i prosty chat nad ostatnio pobraną pocztą.
 
 ## Uruchomienie

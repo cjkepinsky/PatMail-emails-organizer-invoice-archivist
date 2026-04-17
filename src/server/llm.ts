@@ -10,6 +10,23 @@ export type MailClassification = {
   currency: string | null;
 };
 
+export async function getLlmStatus() {
+  const settings = getAppSettings();
+  if (!settings.llmBaseUrl) {
+    return { configured: false, models: [], selectedModel: null };
+  }
+
+  const baseUrl = normalizeBaseUrl(settings.llmBaseUrl);
+  const models = await listLoadedModels(settings, baseUrl);
+  return {
+    configured: true,
+    baseUrl,
+    configuredModel: settings.llmModel || "auto",
+    models,
+    selectedModel: selectModel(models, settings.llmModel || "auto")
+  };
+}
+
 export async function classifyMailWithLlm(input: {
   from: string;
   subject: string;
@@ -18,7 +35,7 @@ export async function classifyMailWithLlm(input: {
   importantSenders: string[];
 }): Promise<MailClassification | null> {
   const settings = getAppSettings();
-  if (!settings.llmBaseUrl || !settings.llmModel) return null;
+  if (!settings.llmBaseUrl) return null;
 
   const messages = [
     {
@@ -59,7 +76,7 @@ export async function classifyMailWithLlm(input: {
 
 export async function chatWithMailbox(input: { question: string; context: unknown[] }) {
   const settings = getAppSettings();
-  if (!settings.llmBaseUrl || !settings.llmModel) {
+  if (!settings.llmBaseUrl) {
     return "Nie skonfigurowano lokalnego modelu LLM.";
   }
 
@@ -86,7 +103,9 @@ async function chatCompletion(
   messages: Array<{ role: string; content: string }>,
   options: { temperature: number; responseFormatJson: boolean }
 ) {
-  const url = `${normalizeBaseUrl(settings.llmBaseUrl)}/chat/completions`;
+  const baseUrl = normalizeBaseUrl(settings.llmBaseUrl);
+  const model = await resolveLoadedModel(settings, baseUrl);
+  const url = `${baseUrl}/chat/completions`;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -94,7 +113,7 @@ async function chatCompletion(
       ...(settings.llmApiKey ? { Authorization: `Bearer ${settings.llmApiKey}` } : {})
     },
     body: JSON.stringify({
-      model: settings.llmModel,
+      model,
       messages,
       temperature: options.temperature,
       ...(options.responseFormatJson ? { response_format: { type: "json_object" } } : {})
@@ -108,6 +127,58 @@ async function chatCompletion(
     choices?: Array<{ message?: { content?: string } }>;
   };
   return json.choices?.[0]?.message?.content || "";
+}
+
+async function resolveLoadedModel(
+  settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
+  baseUrl: string
+) {
+  const modelIds = await listLoadedModels(settings, baseUrl);
+  const selected = selectModel(modelIds, settings.llmModel || "auto");
+  if (!selected) {
+    throw new Error(
+      "Lokalny serwer LLM nie zwrócił żadnego załadowanego modelu. Załaduj model ręcznie w serwerze LLM i spróbuj ponownie."
+    );
+  }
+  return selected;
+}
+
+async function listLoadedModels(
+  settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
+  baseUrl: string
+) {
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: {
+      ...(settings.llmApiKey ? { Authorization: `Bearer ${settings.llmApiKey}` } : {})
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Nie mogę sprawdzić załadowanego modelu przez ${baseUrl}/models: HTTP ${response.status}`
+    );
+  }
+
+  const json = (await response.json()) as { data?: Array<{ id?: string }> };
+  return (json.data || []).map(model => model.id).filter(Boolean) as string[];
+}
+
+function selectModel(modelIds: string[], configuredModel: string) {
+  if (modelIds.length === 0) return null;
+  const requested = configuredModel.trim();
+  if (requested && requested !== "auto") {
+    const exact = modelIds.find(id => id === requested);
+    if (exact) return exact;
+
+    const fuzzy = modelIds.find(id => {
+      const left = id.toLowerCase();
+      const right = requested.toLowerCase();
+      return left.includes(right) || right.includes(left);
+    });
+    if (fuzzy) return fuzzy;
+  }
+
+  return modelIds[0];
 }
 
 function normalizeBaseUrl(baseUrl: string) {

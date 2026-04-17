@@ -19,7 +19,7 @@ import {
 import { exchangeCode, getAuthUrl } from "./gmail.js";
 import { runInvoiceBackfill } from "./invoiceScanner.js";
 import { getChatContext, runImportantMailSync } from "./mailCopilot.js";
-import { chatWithMailbox } from "./llm.js";
+import { chatWithMailbox, getLlmStatus } from "./llm.js";
 
 initDefaults();
 
@@ -132,6 +132,14 @@ app.get("/api/invoices", (_req, res) => {
 
 app.get("/api/important", (_req, res) => {
   res.json(listImportantItems());
+});
+
+app.get("/api/llm/status", async (_req, res) => {
+  try {
+    res.json(await getLlmStatus());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 app.post("/api/chat", async (req, res) => {

@@ -13,5 +13,5 @@ export const serverConfig = {
   defaultArchiveDir: process.env.DEFAULT_ARCHIVE_DIR || "",
   defaultLlmBaseUrl: process.env.LLM_BASE_URL || "http://192.168.1.90:1234",
   defaultLlmApiKey: process.env.LLM_API_KEY || "",
-  defaultLlmModel: process.env.LLM_MODEL || "gpt-oss-20b"
+  defaultLlmModel: process.env.LLM_MODEL || "auto"
 };

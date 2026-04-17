@@ -268,6 +268,7 @@ function App() {
               <input
                 value={settings.llmModel}
                 onChange={event => setSettings({ ...settings, llmModel: event.target.value })}
+                placeholder="auto"
               />
             </label>
             <label className="full">
