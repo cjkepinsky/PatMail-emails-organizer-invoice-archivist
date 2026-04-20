@@ -92,7 +92,8 @@ export async function runInvoiceBackfill(
   try {
     for (const account of accounts) {
       const gmail = gmailForAccount(account);
-      const seenMessages = new Map<string, ProviderRule>();
+      const candidates: { messageId: string; provider: ProviderRule }[] = [];
+      const seenCandidates = new Set<string>();
 
       for (const provider of providers) {
         progress.account = account.email;
@@ -107,11 +108,14 @@ export async function runInvoiceBackfill(
         });
 
         for (const id of ids) {
-          if (!seenMessages.has(id)) seenMessages.set(id, provider);
+          const key = `${id}:${provider.id}`;
+          if (seenCandidates.has(key)) continue;
+          seenCandidates.add(key);
+          candidates.push({ messageId: id, provider });
         }
       }
 
-      for (const [messageId, provider] of seenMessages) {
+      for (const { messageId, provider } of candidates) {
         try {
           progress.account = account.email;
           progress.provider = provider.name;
@@ -183,24 +187,6 @@ async function processMessage(
       .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved'")
       .get(sha256) as { provider_domain: string; file_path: string } | undefined;
     if (duplicateByHash?.provider_domain === provider.targetDomain) {
-      insertProcessed({
-        accountId: account.id,
-        messageId,
-        attachmentId: attachment.attachmentId,
-        providerDomain: provider.targetDomain,
-        sha256,
-        filePath: duplicateByHash.file_path,
-        invoiceMonth: "duplicate",
-        invoiceDate: null,
-        dueDate: null,
-        amount: null,
-        currency: null,
-        invoiceNumber: null,
-        dateSource: "email_sent_date",
-        originalFilename: attachment.filename,
-        status: "duplicate",
-        error: null
-      });
       progress.skippedDuplicates += 1;
       continue;
     }
