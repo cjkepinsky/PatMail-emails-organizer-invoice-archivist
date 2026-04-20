@@ -16,6 +16,11 @@ export type AppSettings = {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  classifierMode: "rules" | "hybrid" | "local-llm";
+  classifierBaseUrl: string;
+  classifierApiKey: string;
+  classifierModel: string;
+  classifierTimeoutMs: number;
   importantSenders: string[];
   importantCategories: string[];
 };

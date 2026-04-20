@@ -3,6 +3,14 @@ import { getAppSettings } from "./db.js";
 const modelCache = new Map<string, { models: string[]; expiresAt: number }>();
 const MODEL_CACHE_MS = 60_000;
 
+type ModelEndpoint = {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  timeoutMs?: number;
+  fallbackToFirstModel?: boolean;
+};
+
 export type MailClassification = {
   priority: "high" | "medium" | "low";
   category: string;
@@ -19,14 +27,40 @@ export async function getLlmStatus() {
     return { configured: false, models: [], selectedModel: null };
   }
 
-  const baseUrl = normalizeBaseUrl(settings.llmBaseUrl);
-  const models = await listLoadedModels(settings, baseUrl);
+  const endpoint = chatEndpoint(settings);
+  const baseUrl = normalizeBaseUrl(endpoint.baseUrl);
+  const models = await listLoadedModels(endpoint, baseUrl);
   return {
     configured: true,
     baseUrl,
-    configuredModel: settings.llmModel || "auto",
+    configuredModel: endpoint.model || "auto",
     models,
-    selectedModel: selectModel(models, settings.llmModel || "auto")
+    selectedModel: selectModel(models, endpoint.model || "auto", endpoint.fallbackToFirstModel !== false)
+  };
+}
+
+export async function getClassifierStatus() {
+  const settings = getAppSettings();
+  if (settings.classifierMode === "rules" || !settings.classifierBaseUrl) {
+    return {
+      configured: settings.classifierMode !== "rules",
+      mode: settings.classifierMode,
+      models: [],
+      selectedModel: null
+    };
+  }
+
+  const endpoint = classifierEndpoint(settings);
+  const baseUrl = normalizeBaseUrl(endpoint.baseUrl);
+  const models = await listLoadedModels(endpoint, baseUrl);
+  return {
+    configured: true,
+    mode: settings.classifierMode,
+    baseUrl,
+    configuredModel: endpoint.model || "auto",
+    timeoutMs: endpoint.timeoutMs,
+    models,
+    selectedModel: selectModel(models, endpoint.model || "auto", endpoint.fallbackToFirstModel !== false)
   };
 }
 
@@ -39,7 +73,7 @@ export async function classifyMailWithLlm(input: {
   importantCategories: string[];
 }): Promise<MailClassification | null> {
   const settings = getAppSettings();
-  if (!settings.llmBaseUrl) return null;
+  if (settings.classifierMode === "rules" || !settings.classifierBaseUrl) return null;
 
   const messages = [
     {
@@ -72,7 +106,8 @@ export async function classifyMailWithLlm(input: {
   ];
 
   try {
-    const data = await chatCompletion(settings, messages, {
+    const data = await chatCompletion(messages, {
+      endpoint: classifierEndpoint(settings),
       temperature: 0,
       responseFormatJson: true,
       maxTokens: 180
@@ -104,7 +139,8 @@ export async function chatWithMailbox(input: { question: string; context: unknow
     }
   ];
 
-  return chatCompletion(settings, messages, {
+  return chatCompletion(messages, {
+    endpoint: chatEndpoint(settings),
     temperature: 0.1,
     responseFormatJson: false,
     maxTokens: 700
@@ -112,18 +148,21 @@ export async function chatWithMailbox(input: { question: string; context: unknow
 }
 
 async function chatCompletion(
-  settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
   messages: Array<{ role: string; content: string }>,
-  options: { temperature: number; responseFormatJson: boolean; maxTokens: number }
+  options: { endpoint: ModelEndpoint; temperature: number; responseFormatJson: boolean; maxTokens: number }
 ) {
-  const baseUrl = normalizeBaseUrl(settings.llmBaseUrl);
-  const model = await resolveLoadedModel(settings, baseUrl);
+  const endpoint = options.endpoint;
+  const baseUrl = normalizeBaseUrl(endpoint.baseUrl);
+  const model = await resolveLoadedModel(endpoint, baseUrl);
   const url = `${baseUrl}/chat/completions`;
+  const controller = endpoint.timeoutMs ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), endpoint.timeoutMs) : null;
   const response = await fetch(url, {
     method: "POST",
+    signal: controller?.signal,
     headers: {
       "Content-Type": "application/json",
-      ...(settings.llmApiKey ? { Authorization: `Bearer ${settings.llmApiKey}` } : {})
+      ...(endpoint.apiKey ? { Authorization: `Bearer ${endpoint.apiKey}` } : {})
     },
     body: JSON.stringify({
       model,
@@ -132,6 +171,8 @@ async function chatCompletion(
       max_tokens: options.maxTokens,
       ...(options.responseFormatJson ? { response_format: { type: "json_object" } } : {})
     })
+  }).finally(() => {
+    if (timeout) clearTimeout(timeout);
   });
 
   if (!response.ok) {
@@ -144,11 +185,11 @@ async function chatCompletion(
 }
 
 async function resolveLoadedModel(
-  settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
+  settings: ModelEndpoint,
   baseUrl: string
 ) {
   const modelIds = await listLoadedModels(settings, baseUrl);
-  const selected = selectModel(modelIds, settings.llmModel || "auto");
+  const selected = selectModel(modelIds, settings.model || "auto", settings.fallbackToFirstModel !== false);
   if (!selected) {
     throw new Error(
       "Lokalny serwer LLM nie zwrócił żadnego załadowanego modelu. Załaduj model ręcznie w serwerze LLM i spróbuj ponownie."
@@ -158,7 +199,7 @@ async function resolveLoadedModel(
 }
 
 async function listLoadedModels(
-  settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string },
+  settings: ModelEndpoint,
   baseUrl: string
 ) {
   const cached = modelCache.get(baseUrl);
@@ -166,7 +207,7 @@ async function listLoadedModels(
 
   const response = await fetch(`${baseUrl}/models`, {
     headers: {
-      ...(settings.llmApiKey ? { Authorization: `Bearer ${settings.llmApiKey}` } : {})
+      ...(settings.apiKey ? { Authorization: `Bearer ${settings.apiKey}` } : {})
     }
   });
 
@@ -182,7 +223,30 @@ async function listLoadedModels(
   return models;
 }
 
-function selectModel(modelIds: string[], configuredModel: string) {
+function chatEndpoint(settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string }): ModelEndpoint {
+  return {
+    baseUrl: settings.llmBaseUrl,
+    apiKey: settings.llmApiKey,
+    model: settings.llmModel
+  };
+}
+
+function classifierEndpoint(settings: {
+  classifierBaseUrl: string;
+  classifierApiKey: string;
+  classifierModel: string;
+  classifierTimeoutMs: number;
+}): ModelEndpoint {
+  return {
+    baseUrl: settings.classifierBaseUrl,
+    apiKey: settings.classifierApiKey,
+    model: settings.classifierModel,
+    timeoutMs: settings.classifierTimeoutMs,
+    fallbackToFirstModel: false
+  };
+}
+
+function selectModel(modelIds: string[], configuredModel: string, fallbackToFirstModel = true) {
   if (modelIds.length === 0) return null;
   const requested = configuredModel.trim();
   if (requested && requested !== "auto") {
@@ -197,7 +261,7 @@ function selectModel(modelIds: string[], configuredModel: string) {
     if (fuzzy) return fuzzy;
   }
 
-  return modelIds[0];
+  return fallbackToFirstModel ? modelIds[0] : null;
 }
 
 function normalizeBaseUrl(baseUrl: string) {

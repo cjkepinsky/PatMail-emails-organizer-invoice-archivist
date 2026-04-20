@@ -20,7 +20,7 @@ import {
 import { exchangeCode, getAuthUrl } from "./gmail.js";
 import { runInvoiceBackfill } from "./invoiceScanner.js";
 import { getChatContext, runImportantMailSync } from "./mailCopilot.js";
-import { chatWithMailbox, getLlmStatus } from "./llm.js";
+import { chatWithMailbox, getClassifierStatus, getLlmStatus } from "./llm.js";
 
 initDefaults();
 
@@ -48,12 +48,19 @@ app.get("/api/settings", (_req, res) => {
 
 app.post("/api/settings", (req, res) => {
   const body = req.body || {};
+  const current = getAppSettings();
   const settings = updateAppSettings({
     archiveDir: String(body.archiveDir || ""),
     historyYears: Number(body.historyYears || 4),
     llmBaseUrl: String(body.llmBaseUrl || ""),
-    llmApiKey: String(body.llmApiKey || ""),
+    llmApiKey: body.llmApiKey === "configured" ? current.llmApiKey : String(body.llmApiKey || ""),
     llmModel: String(body.llmModel || "gpt-oss-20b"),
+    classifierMode: body.classifierMode,
+    classifierBaseUrl: String(body.classifierBaseUrl || ""),
+    classifierApiKey:
+      body.classifierApiKey === "configured" ? current.classifierApiKey : String(body.classifierApiKey || ""),
+    classifierModel: String(body.classifierModel || ""),
+    classifierTimeoutMs: Number(body.classifierTimeoutMs || 2500),
     importantSenders: String(body.importantSenders || "")
       .split(/\n|,/)
       .map(item => item.trim())
@@ -155,6 +162,14 @@ app.get("/api/llm/status", async (_req, res) => {
   }
 });
 
+app.get("/api/classifier/status", async (_req, res) => {
+  try {
+    res.json(await getClassifierStatus());
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
     const question = String(req.body?.question || "");
@@ -176,6 +191,7 @@ function safeSettings() {
   return {
     ...settings,
     llmApiKey: settings.llmApiKey ? "configured" : "",
+    classifierApiKey: settings.classifierApiKey ? "configured" : "",
     importantSenders: settings.importantSenders.join("\n"),
     importantCategories: settings.importantCategories.join("\n")
   };

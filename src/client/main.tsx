@@ -8,6 +8,11 @@ type Settings = {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  classifierMode: "rules" | "hybrid" | "local-llm";
+  classifierBaseUrl: string;
+  classifierApiKey: string;
+  classifierModel: string;
+  classifierTimeoutMs: number;
   importantSenders: string;
   importantCategories: string;
 };
@@ -267,20 +272,63 @@ function App() {
                 />
               </label>
               <label>
-                Lokalny LLM URL
+                LLM do rozmowy, URL
                 <input
                   value={settings.llmBaseUrl}
                   onChange={event => setSettings({ ...settings, llmBaseUrl: event.target.value })}
                 />
               </label>
               <label>
-                Model
+                Model do rozmowy
                 <input
                   value={settings.llmModel}
                   onChange={event => setSettings({ ...settings, llmModel: event.target.value })}
                   placeholder="auto"
                 />
               </label>
+              <label>
+                Tryb klasyfikacji
+                <select
+                  value={settings.classifierMode}
+                  onChange={event =>
+                    setSettings({ ...settings, classifierMode: event.target.value as Settings["classifierMode"] })
+                  }
+                >
+                  <option value="hybrid">Hybryda: reguły + lekki model</option>
+                  <option value="rules">Tylko reguły</option>
+                  <option value="local-llm">Lekki model dla każdego maila</option>
+                </select>
+              </label>
+              <label>
+                Klasyfikator URL
+                <input
+                  value={settings.classifierBaseUrl}
+                  onChange={event => setSettings({ ...settings, classifierBaseUrl: event.target.value })}
+                  placeholder="http://127.0.0.1:11434"
+                />
+              </label>
+              <label>
+                Model klasyfikatora
+                <input
+                  value={settings.classifierModel}
+                  onChange={event => setSettings({ ...settings, classifierModel: event.target.value })}
+                  placeholder="qwen2.5:1.5b-instruct"
+                />
+              </label>
+              <label>
+                Timeout klasyfikatora
+                <input
+                  type="number"
+                  min={500}
+                  max={15000}
+                  step={500}
+                  value={settings.classifierTimeoutMs}
+                  onChange={event => setSettings({ ...settings, classifierTimeoutMs: Number(event.target.value) })}
+                />
+              </label>
+              <p className="muted full">
+                Chat może używać mocnego GPT-OSS 20B, a klasyfikacja może działać lokalnie na lekkim modelu albo samych regułach.
+              </p>
               <label className="full">
                 Ważni nadawcy, po jednym w linii
                 <textarea

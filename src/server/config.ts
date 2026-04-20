@@ -13,5 +13,10 @@ export const serverConfig = {
   defaultArchiveDir: process.env.DEFAULT_ARCHIVE_DIR || "",
   defaultLlmBaseUrl: process.env.LLM_BASE_URL || "http://192.168.1.90:1234",
   defaultLlmApiKey: process.env.LLM_API_KEY || "",
-  defaultLlmModel: process.env.LLM_MODEL || "auto"
+  defaultLlmModel: process.env.LLM_MODEL || "auto",
+  defaultClassifierMode: process.env.CLASSIFIER_MODE || "hybrid",
+  defaultClassifierBaseUrl: process.env.CLASSIFIER_BASE_URL || "http://127.0.0.1:11434",
+  defaultClassifierApiKey: process.env.CLASSIFIER_API_KEY || "",
+  defaultClassifierModel: process.env.CLASSIFIER_MODEL || "tinydolphin:latest",
+  defaultClassifierTimeoutMs: Number(process.env.CLASSIFIER_TIMEOUT_MS || 2500)
 };

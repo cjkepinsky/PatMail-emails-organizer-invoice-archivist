@@ -248,6 +248,11 @@ export function initDefaults() {
     llmBaseUrl: getSetting("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
     llmApiKey: getSetting("llmApiKey") || serverConfig.defaultLlmApiKey,
     llmModel: getSetting("llmModel") || serverConfig.defaultLlmModel,
+    classifierMode: normalizeClassifierMode(getSetting("classifierMode") || serverConfig.defaultClassifierMode),
+    classifierBaseUrl: getSetting("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl,
+    classifierApiKey: getSetting("classifierApiKey") || serverConfig.defaultClassifierApiKey,
+    classifierModel: getSetting("classifierModel") || serverConfig.defaultClassifierModel,
+    classifierTimeoutMs: normalizeClassifierTimeout(getSetting("classifierTimeoutMs")),
     importantSenders: parseJsonListSetting("importantSenders"),
     importantCategories: parseJsonListSetting("importantCategories", defaultImportantCategories)
   };
@@ -276,6 +281,11 @@ export function getAppSettings(): AppSettings {
     llmBaseUrl: getSetting("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
     llmApiKey: getSetting("llmApiKey") || "",
     llmModel: getSetting("llmModel") || serverConfig.defaultLlmModel,
+    classifierMode: normalizeClassifierMode(getSetting("classifierMode") || serverConfig.defaultClassifierMode),
+    classifierBaseUrl: getSetting("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl,
+    classifierApiKey: getSetting("classifierApiKey") || "",
+    classifierModel: getSetting("classifierModel") || serverConfig.defaultClassifierModel,
+    classifierTimeoutMs: normalizeClassifierTimeout(getSetting("classifierTimeoutMs")),
     importantSenders: parseJsonListSetting("importantSenders"),
     importantCategories: parseJsonListSetting("importantCategories", defaultImportantCategories)
   };
@@ -287,6 +297,29 @@ export function updateAppSettings(input: Partial<AppSettings>) {
   if (input.llmBaseUrl !== undefined) setSetting("llmBaseUrl", input.llmBaseUrl);
   if (input.llmApiKey !== undefined) setSetting("llmApiKey", input.llmApiKey);
   if (input.llmModel !== undefined) setSetting("llmModel", input.llmModel);
+  if (input.classifierMode !== undefined) {
+    const mode = normalizeClassifierMode(input.classifierMode);
+    if (normalizeClassifierMode(getSetting("classifierMode") || serverConfig.defaultClassifierMode) !== mode) {
+      clearImportantItems();
+    }
+    setSetting("classifierMode", mode);
+  }
+  if (input.classifierBaseUrl !== undefined) {
+    if ((getSetting("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl) !== input.classifierBaseUrl) {
+      clearImportantItems();
+    }
+    setSetting("classifierBaseUrl", input.classifierBaseUrl);
+  }
+  if (input.classifierApiKey !== undefined) setSetting("classifierApiKey", input.classifierApiKey);
+  if (input.classifierModel !== undefined) {
+    if ((getSetting("classifierModel") || serverConfig.defaultClassifierModel) !== input.classifierModel) {
+      clearImportantItems();
+    }
+    setSetting("classifierModel", input.classifierModel);
+  }
+  if (input.classifierTimeoutMs !== undefined) {
+    setSetting("classifierTimeoutMs", String(normalizeClassifierTimeout(input.classifierTimeoutMs)));
+  }
   if (input.importantSenders !== undefined) {
     const current = parseJsonListSetting("importantSenders");
     if (!sameList(current, input.importantSenders)) clearImportantItems();
@@ -308,6 +341,18 @@ function sameList(left: string[], right: string[]) {
 
 function clearImportantItems() {
   db.prepare("DELETE FROM important_items").run();
+}
+
+function normalizeClassifierMode(value: unknown): AppSettings["classifierMode"] {
+  const mode = String(value || "").trim();
+  if (mode === "rules" || mode === "local-llm") return mode;
+  return "hybrid";
+}
+
+function normalizeClassifierTimeout(value: unknown) {
+  const timeout = Number(value || serverConfig.defaultClassifierTimeoutMs);
+  if (!Number.isFinite(timeout)) return serverConfig.defaultClassifierTimeoutMs;
+  return Math.max(500, Math.min(15000, Math.round(timeout)));
 }
 
 export function listAccounts(): GmailAccount[] {

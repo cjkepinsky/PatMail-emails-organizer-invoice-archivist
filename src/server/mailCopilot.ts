@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db, getAppSettings, listAccounts, updateJob } from "./db.js";
-import { classifyMailWithLlm } from "./llm.js";
+import { classifyMailWithLlm, type MailClassification } from "./llm.js";
 import { getParsedMessage, gmailForAccount, listMessageIds, messageDate, parseFromHeader } from "./gmail.js";
 
 type Progress = {
@@ -60,21 +60,35 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
           text
         });
 
-        const classification =
-          (await classifyMailWithLlm({
+        const ruleClassification = classifyWithRules({
+          fromEmail: from.email,
+          subject,
+          text,
+          importantSenders: settings.importantSenders,
+          importantCategories: settings.importantCategories
+        });
+        let classification = ruleClassification.classification;
+        const shouldAskClassifier =
+          settings.classifierMode === "local-llm" ||
+          (settings.classifierMode === "hybrid" && !ruleClassification.confident);
+
+        if (shouldAskClassifier) {
+          classification =
+            (await classifyMailWithLlm({
             from: `${from.name} <${from.email}>`,
             subject,
             snippet: message.snippet,
             text,
             importantSenders: settings.importantSenders,
             importantCategories: settings.importantCategories
-          })) || classifyWithRules({
+            })) || classification;
+          classification = guardClassification(classification, ruleClassification, {
             fromEmail: from.email,
             subject,
             text,
-            importantSenders: settings.importantSenders,
             importantCategories: settings.importantCategories
           });
+        }
 
         progress.scannedMessages += 1;
         if (classification.priority === "high" || classification.priority === "medium") {
@@ -190,17 +204,53 @@ function classifyWithRules(input: {
   const senderImportant = input.importantSenders.some(sender =>
     input.fromEmail.includes(sender.toLowerCase())
   );
-  const match = findImportantCategory(haystack, input.importantCategories);
+  const clearNoise = isLikelyNoise(haystack);
+  const allowedNoiseCue = hasHardImportantCue(haystack) || hasConfiguredJobCue(haystack, input.importantCategories);
+  const match = clearNoise && !allowedNoiseCue ? null : findImportantCategory(haystack, input.importantCategories);
+  const potentialCue = hasPotentialImportantCue(haystack, input.importantCategories);
   const priority = senderImportant || match?.priority === "high" ? "high" : match?.priority === "medium" ? "medium" : "low";
-  return {
-    priority: priority as "high" | "medium" | "low",
-    category: match?.category || (senderImportant ? "maile od ważnych nadawców" : "other"),
+  const classification: MailClassification = {
+    priority,
+    category: match?.category || (senderImportant ? "maile od ważnych nadawców" : clearNoise ? "noise" : "other"),
     summary: input.subject || "Wiadomość może wymagać uwagi.",
     action_required: match?.actionRequired || "",
     due_date: null,
     amount: null,
     currency: null
   };
+
+  return {
+    classification,
+    confident: Boolean(senderImportant || match || clearNoise || !potentialCue)
+  };
+}
+
+function guardClassification(
+  classification: MailClassification,
+  ruleClassification: { classification: MailClassification },
+  input: { fromEmail: string; subject: string; text: string; importantCategories: string[] }
+) {
+  if (classification.priority === "low") return classification;
+
+  const haystack = `${input.fromEmail} ${input.subject} ${input.text}`.toLowerCase();
+  const noiseCanMatter = hasHardImportantCue(haystack) || hasConfiguredJobCue(haystack, input.importantCategories);
+  const ruleMatch =
+    isLikelyNoise(haystack) && !noiseCanMatter ? null : findImportantCategory(haystack, input.importantCategories);
+  const potentialCue = hasPotentialImportantCue(haystack, input.importantCategories);
+  if (((isLikelyNoise(haystack) && !noiseCanMatter) || !potentialCue) && !ruleMatch) {
+    return ruleClassification.classification;
+  }
+
+  const configured = new Set(input.importantCategories.map(normalize));
+  const category = normalize(classification.category);
+  if (category !== "other" && category !== "noise" && !configured.has(category)) {
+    return {
+      ...classification,
+      category: ruleMatch?.category || "other"
+    };
+  }
+
+  return classification;
 }
 
 function findImportantCategory(haystack: string, categories: string[]) {
@@ -224,7 +274,7 @@ function findImportantCategory(haystack: string, categories: string[]) {
     },
     {
       hints: ["ksieg", "księg", "podat", "urzad", "urząd", "accounting", "tax", "legal", "praw"],
-      regex: /(urząd|urzad|tax|podatek|księg|ksieg|accountant|legal|lawyer|zus|vat)/i,
+      regex: /(\burząd\b|\burzad\b|\btax\b|podatek|księg|ksieg|accountant|\blegal\b|lawyer|\bzus\b|\bvat\b)/i,
       priority: "high",
       actionRequired: "Sprawdź, czy wymaga odpowiedzi lub płatności."
     },
@@ -267,6 +317,42 @@ function findImportantCategory(haystack: string, categories: string[]) {
     }
   }
   return null;
+}
+
+function hasPotentialImportantCue(haystack: string, categories: string[]) {
+  const configured = categories.map(normalize).join(" ");
+  const cues = [
+    { hints: ["faktur", "rachun", "platn", "płat"], regex: /(invoice|faktura|rachunek|receipt|payment due|termin płatności|przelew|p24|payu|autopay)/i },
+    { hints: ["ksieg", "księg", "podat", "urzad", "urząd"], regex: /(księg|ksieg|podatek|\btax\b|\bzus\b|\bvat\b|\burząd\b|\burzad\b|infakt)/i },
+    { hints: ["bank"], regex: /(bank|mbank|transaction|charge|konto|karta)/i },
+    { hints: ["licenc", "subskry", "subscription"], regex: /(license|licencja|subscription|renewal|odnowienie|plan renewed)/i },
+    { hints: ["prac", "job", "rekrut", "career", "hiring"], regex: /(oferta pracy|job offer|recruiter|rekrut|hiring|career|interview|linkedin|jooble|nofluffjobs)/i },
+    { hints: ["internet", "gaz", "prad", "prąd", "woda"], regex: /(internet|energia|prąd|prad|gaz|woda|operator)/i }
+  ];
+
+  return cues.some(candidate =>
+    candidate.hints.some(hint => configured.includes(normalize(hint))) && candidate.regex.test(haystack)
+  );
+}
+
+function hasHardImportantCue(haystack: string) {
+  return /(\binvoice\b|faktura|rachunek|\breceipt\b|payment due|termin płatności|termin platnosci|przelewy24|payu|autopay|t-mobile|infakt|\bmbank\b|\bzus\b)/i.test(
+    haystack
+  );
+}
+
+function hasConfiguredJobCue(haystack: string, categories: string[]) {
+  const configured = categories.map(normalize).join(" ");
+  if (!/(ofert|prac|job|rekrut|career|hiring)/i.test(configured)) return false;
+  return /(oferta pracy|job offer|recruiter|rekrut|hiring|career|interview|linkedin|jooble|nofluffjobs)/i.test(
+    haystack
+  );
+}
+
+function isLikelyNoise(haystack: string) {
+  return /(unsubscribe|view in browser|newsletter|substack|beehiiv|sale|discount|promo|promocja|wyprzedaż|kupon|coupon|black friday|follow us|limited time offer|brand days|alert google|google alert|darmowe produkty|free products|free ebook|giveaway)/i.test(
+    haystack
+  );
 }
 
 function normalize(input: string) {
