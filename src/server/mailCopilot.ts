@@ -62,7 +62,9 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
 
         const ruleClassification = classifyWithRules({
           fromEmail: from.email,
+          fromName: from.name,
           subject,
+          snippet: message.snippet,
           text,
           importantSenders: settings.importantSenders,
           importantCategories: settings.importantCategories
@@ -84,7 +86,9 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
             })) || classification;
           classification = guardClassification(classification, ruleClassification, {
             fromEmail: from.email,
+            fromName: from.name,
             subject,
+            snippet: message.snippet,
             text,
             importantCategories: settings.importantCategories
           });
@@ -195,19 +199,20 @@ function cacheMail(input: {
 
 function classifyWithRules(input: {
   fromEmail: string;
+  fromName: string;
   subject: string;
+  snippet: string;
   text: string;
   importantSenders: string[];
   importantCategories: string[];
 }) {
-  const haystack = `${input.fromEmail} ${input.subject} ${input.text}`.toLowerCase();
+  const haystack = `${input.fromEmail} ${input.fromName} ${input.subject} ${input.snippet}`.toLowerCase();
   const senderImportant = input.importantSenders.some(sender =>
     input.fromEmail.includes(sender.toLowerCase())
   );
   const clearNoise = isLikelyNoise(haystack);
   const allowedNoiseCue = hasHardImportantCue(haystack) || hasConfiguredJobCue(haystack, input.importantCategories);
   const match = clearNoise && !allowedNoiseCue ? null : findImportantCategory(haystack, input.importantCategories);
-  const potentialCue = hasPotentialImportantCue(haystack, input.importantCategories);
   const priority = senderImportant || match?.priority === "high" ? "high" : match?.priority === "medium" ? "medium" : "low";
   const classification: MailClassification = {
     priority,
@@ -221,18 +226,18 @@ function classifyWithRules(input: {
 
   return {
     classification,
-    confident: Boolean(senderImportant || match || clearNoise || !potentialCue)
+    confident: true
   };
 }
 
 function guardClassification(
   classification: MailClassification,
   ruleClassification: { classification: MailClassification },
-  input: { fromEmail: string; subject: string; text: string; importantCategories: string[] }
+  input: { fromEmail: string; fromName: string; subject: string; snippet: string; text: string; importantCategories: string[] }
 ) {
   if (classification.priority === "low") return classification;
 
-  const haystack = `${input.fromEmail} ${input.subject} ${input.text}`.toLowerCase();
+  const haystack = `${input.fromEmail} ${input.fromName} ${input.subject} ${input.snippet}`.toLowerCase();
   const noiseCanMatter = hasHardImportantCue(haystack) || hasConfiguredJobCue(haystack, input.importantCategories);
   const ruleMatch =
     isLikelyNoise(haystack) && !noiseCanMatter ? null : findImportantCategory(haystack, input.importantCategories);
@@ -243,6 +248,10 @@ function guardClassification(
 
   const configured = new Set(input.importantCategories.map(normalize));
   const category = normalize(classification.category);
+  if (ruleMatch && category !== normalize(ruleMatch.category)) {
+    return ruleClassification.classification;
+  }
+
   if (category !== "other" && category !== "noise" && !configured.has(category)) {
     return {
       ...classification,
@@ -258,53 +267,72 @@ function findImportantCategory(haystack: string, categories: string[]) {
     raw: category,
     normalized: normalize(category)
   }));
+  const consumerOrderNoise = isConsumerOrderNoise(haystack);
 
   const candidates = [
     {
+      hints: ["platn", "płat", "payment"],
+      regex:
+        /(przelewy24|payu|autopay|p24-|status swojej płatności|status swojej platnosci|transakcja płatnicza|transakcja platnicza|zlecenie płatności|zlecenie platnosci|przekazaliśmy twoją płatność|przekazalismy twoja platnosc|potwierdzenie płatności|potwierdzenie platnosci|payment status|payment confirmation)/i,
+      priority: "high",
+      actionRequired: "Sprawdź płatność albo transakcję."
+    },
+    {
+      hints: ["bank"],
+      regex:
+        /(\bmbank\b|santander|alior bank|bank pekao|pekao24|ing bank|millennium bank|nest bank|velobank|credit agricole|pko bank|inteligo|bnpparibas|kontakt@mbank\.pl|@[^ ]*bank|bank@)/i,
+      priority: "high",
+      actionRequired: "Sprawdź komunikat bankowy."
+    },
+    {
       hints: ["faktur", "rachun", "invoice", "receipt"],
-      regex: /(invoice|faktura|rachunek|receipt|payment due|termin płatności|termin platnosci|platne do|płatne do)/i,
+      regex:
+        /(\binvoice\b|faktura|rachunek|\breceipt\b|payment due|termin płatności|termin platnosci|platne do|płatne do|amount due|t-mobile|twoja faktura z firmy apple)/i,
       priority: "high",
-      actionRequired: "Sprawdź termin płatności lub archiwum faktur."
+      actionRequired: "Sprawdź termin płatności lub archiwum faktur.",
+      skip: consumerOrderNoise
     },
     {
-      hints: ["platn", "płat", "payment", "termin"],
-      regex: /(payment due|termin płatności|termin platnosci|platne do|płatne do|payment failed|card declined|amount due)/i,
-      priority: "high",
-      actionRequired: "Sprawdź płatność albo termin."
-    },
-    {
-      hints: ["ksieg", "księg", "podat", "urzad", "urząd", "accounting", "tax", "legal", "praw"],
-      regex: /(\burząd\b|\burzad\b|\btax\b|podatek|księg|ksieg|accountant|\blegal\b|lawyer|\bzus\b|\bvat\b)/i,
+      hints: ["ksieg", "księg", "podat", "accounting", "tax"],
+      regex: /(infakt|księg|ksieg|accountant|składk|skladk|\bzus\b|podatek|\btax\b)/i,
       priority: "high",
       actionRequired: "Sprawdź, czy wymaga odpowiedzi lub płatności."
     },
     {
-      hints: ["bank"],
-      regex: /(bank|transaction|charge|payment card|konto|przelew)/i,
+      hints: ["media", "internet", "gaz", "prad", "prąd", "woda", "utilities"],
+      regex: /(internet|energia|prąd|prad|gaz|woda|utilities|operator|faktura za|rachunek za)/i,
       priority: "high",
-      actionRequired: "Sprawdź operację lub komunikat bankowy."
+      actionRequired: "Sprawdź termin płatności."
     },
     {
       hints: ["licenc", "subskry", "subscription", "renewal", "commercial"],
-      regex: /(license|licencja|subscription|renewal|odnowienie|commercial|plan renewed)/i,
+      regex: /(license|licencja|subscription|subskrypcja|renewal|odnowienie|commercial|plan renewed)/i,
       priority: "medium",
       actionRequired: ""
     },
     {
       hints: ["prac", "job", "rekrut", "career", "hiring"],
-      regex: /(oferta pracy|job offer|recruiter|rekrut|hiring|career|interview|linkedin jobs|nofluffjobs)/i,
+      regex: /(oferta pracy|oferty pracy|miejsc pracy|dam prac|stanowisko|job offer|job alert|recruiter|rekrut|hiring|career|interview|linkedin jobs|jooble|nofluffjobs|solid\.jobs|justjoin\.it|propozycja projektu|projekt -)/i,
       priority: "medium",
       actionRequired: ""
     },
     {
-      hints: ["media", "internet", "gaz", "prad", "prąd", "woda", "utilities"],
-      regex: /(internet|energia|prąd|prad|gaz|woda|utilities|operator|faktura za)/i,
+      hints: ["konto", "bezpieczen", "bezpieczeń", "account", "security"],
+      regex:
+        /(alert bezpieczeństwa|alert bezpieczenstwa|security alert|wyzerowano hasło|wyzerowano haslo|hasło konta|haslo konta|password reset|konto google|konto apple|apple id|nowe logowanie|logowanie z nowego urządzenia|logowanie z nowego urzadzenia|new sign-in|suspicious activity|accounts\.google|id\.apple|gdpr|privacy|data processing|confirm your account)/i,
       priority: "high",
-      actionRequired: "Sprawdź termin płatności."
+      actionRequired: "Sprawdź, czy to znana aktywność."
+    },
+    {
+      hints: ["urzad", "urząd", "legal", "praw"],
+      regex: /(\burząd\b|\burzad\b|\blegal\b|lawyer|prawnik|gov\.pl|e-?urząd|e-?urzad)/i,
+      priority: "high",
+      actionRequired: "Sprawdź, czy wymaga odpowiedzi."
     }
   ];
 
   for (const candidate of candidates) {
+    if (candidate.skip) continue;
     const category = configured.find(item =>
       candidate.hints.some(hint => item.normalized.includes(normalize(hint)))
     );
@@ -322,11 +350,34 @@ function findImportantCategory(haystack: string, categories: string[]) {
 function hasPotentialImportantCue(haystack: string, categories: string[]) {
   const configured = categories.map(normalize).join(" ");
   const cues = [
-    { hints: ["faktur", "rachun", "platn", "płat"], regex: /(invoice|faktura|rachunek|receipt|payment due|termin płatności|przelew|p24|payu|autopay)/i },
-    { hints: ["ksieg", "księg", "podat", "urzad", "urząd"], regex: /(księg|ksieg|podatek|\btax\b|\bzus\b|\bvat\b|\burząd\b|\burzad\b|infakt)/i },
-    { hints: ["bank"], regex: /(bank|mbank|transaction|charge|konto|karta)/i },
-    { hints: ["licenc", "subskry", "subscription"], regex: /(license|licencja|subscription|renewal|odnowienie|plan renewed)/i },
-    { hints: ["prac", "job", "rekrut", "career", "hiring"], regex: /(oferta pracy|job offer|recruiter|rekrut|hiring|career|interview|linkedin|jooble|nofluffjobs)/i },
+    {
+      hints: ["platn", "płat", "payment"],
+      regex: /(przelewy24|payu|autopay|p24-|płatnicz|platnicz|potwierdzenie płatności|payment confirmation)/i
+    },
+    {
+      hints: ["konto", "bezpieczen", "bezpieczeń", "account", "security"],
+      regex: /(alert bezpieczeństwa|alert bezpieczenstwa|security alert|password reset|wyzerowano hasło|konto google|konto apple|apple id|gdpr|privacy)/i
+    },
+    {
+      hints: ["faktur", "rachun"],
+      regex: /(\binvoice\b|faktura|rachunek|\breceipt\b|payment due|termin płatności|termin platnosci|t-mobile|twoja faktura z firmy apple)/i
+    },
+    {
+      hints: ["ksieg", "księg", "podat"],
+      regex: /(księg|ksieg|podatek|\btax\b|\bzus\b|infakt|składk|skladk)/i
+    },
+    {
+      hints: ["bank"],
+      regex: /(\bmbank\b|santander|alior bank|bank pekao|pekao24|ing bank|millennium bank|nest bank|velobank|pko bank)/i
+    },
+    {
+      hints: ["licenc", "subskry", "subscription"],
+      regex: /(license|licencja|subscription|subskrypcja|renewal|odnowienie|plan renewed)/i
+    },
+    {
+      hints: ["prac", "job", "rekrut", "career", "hiring"],
+      regex: /(oferta pracy|oferty pracy|miejsc pracy|dam prac|stanowisko|job offer|job alert|recruiter|rekrut|hiring|career|interview|linkedin|jooble|nofluffjobs|solid\.jobs|justjoin\.it|propozycja projektu)/i
+    },
     { hints: ["internet", "gaz", "prad", "prąd", "woda"], regex: /(internet|energia|prąd|prad|gaz|woda|operator)/i }
   ];
 
@@ -336,7 +387,8 @@ function hasPotentialImportantCue(haystack: string, categories: string[]) {
 }
 
 function hasHardImportantCue(haystack: string) {
-  return /(\binvoice\b|faktura|rachunek|\breceipt\b|payment due|termin płatności|termin platnosci|przelewy24|payu|autopay|t-mobile|infakt|\bmbank\b|\bzus\b)/i.test(
+  if (isConsumerOrderNoise(haystack)) return false;
+  return /(\binvoice\b|faktura|rachunek|\breceipt\b|payment due|termin płatności|termin platnosci|przelewy24|payu|autopay|t-mobile|infakt|\bmbank\b|\bzus\b|santander|alior bank|alert bezpieczeństwa|security alert|password reset|wyzerowano hasło|konto google|konto apple|apple id)/i.test(
     haystack
   );
 }
@@ -350,7 +402,13 @@ function hasConfiguredJobCue(haystack: string, categories: string[]) {
 }
 
 function isLikelyNoise(haystack: string) {
-  return /(unsubscribe|view in browser|newsletter|substack|beehiiv|sale|discount|promo|promocja|wyprzedaż|kupon|coupon|black friday|follow us|limited time offer|brand days|alert google|google alert|darmowe produkty|free products|free ebook|giveaway)/i.test(
+  return /(unsubscribe|view in browser|newsletter|substack|beehiiv|sale|discount|\d+%\s*off|promo|promocja|wyprzedaż|kupon|coupon|black friday|follow us|limited time offer|brand days|alert google|google alert|darmowe produkty|free products|free ebook|giveaway|mcdonald'?s account services|twoje zamówienie w aplikacji|twoje zamowienie w aplikacji)/i.test(
+    haystack
+  );
+}
+
+function isConsumerOrderNoise(haystack: string) {
+  return /(mcdonald'?s account services|twoje zamówienie w aplikacji|twoje zamowienie w aplikacji|zamówienie w aplikacji mcdonald|zamowienie w aplikacji mcdonald)/i.test(
     haystack
   );
 }

@@ -13,9 +13,11 @@ export const db = new DatabaseSync(dbPath);
 
 export const defaultImportantCategories = [
   "faktury i rachunki",
-  "płatności i terminy płatności",
-  "księgowość i podatki",
-  "bank i sprawy urzędowe",
+  "płatności",
+  "księgowość",
+  "bankowe",
+  "konta i bezpieczeństwo",
+  "oferty pracy",
   "licencje i subskrypcje",
   "maile od ważnych nadawców"
 ];
@@ -180,6 +182,41 @@ function parseJsonListSetting(key: string, fallback: string[] = []) {
   }
 }
 
+function migrateImportantCategoriesSetting() {
+  const current = parseJsonListSetting("importantCategories", defaultImportantCategories);
+  const migrated: string[] = [];
+  let changed = false;
+
+  for (const category of current) {
+    const normalized = category.toLowerCase();
+    const replacements =
+      normalized === "płatności i terminy płatności"
+        ? ["płatności"]
+        : normalized === "księgowość i podatki"
+        ? ["księgowość"]
+        : normalized === "bank i sprawy urzędowe"
+        ? ["bankowe", "konta i bezpieczeństwo"]
+        : [category];
+
+    if (replacements.length !== 1 || replacements[0] !== category) changed = true;
+    for (const replacement of replacements) {
+      if (!migrated.includes(replacement)) migrated.push(replacement);
+    }
+  }
+
+  for (const category of defaultImportantCategories) {
+    if (!migrated.includes(category)) {
+      migrated.push(category);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    setSetting("importantCategories", JSON.stringify(migrated));
+    clearImportantItems();
+  }
+}
+
 function mergeDefaultProviderSenderEmails(providerId: string, emails: string[]) {
   const row = db.prepare("SELECT sender_emails_json FROM providers WHERE id = ?").get(providerId) as
     | { sender_emails_json: string }
@@ -260,6 +297,7 @@ export function initDefaults() {
   for (const [key, value] of Object.entries(settings)) {
     setSetting(key, typeof value === "string" ? value : JSON.stringify(value));
   }
+  migrateImportantCategoriesSetting();
 
   const existing = db.prepare("SELECT COUNT(*) AS count FROM providers").get() as { count: number };
   if (existing.count === 0) {
