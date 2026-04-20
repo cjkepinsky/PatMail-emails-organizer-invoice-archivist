@@ -10,6 +10,7 @@ import {
   messageDate,
   parseFromHeader
 } from "./gmail.js";
+import { renderEmailPdf } from "./emailPdf.js";
 import { extractInvoiceInfo, extractPdfText, invoiceMonth } from "./invoiceParser.js";
 import { sanitizeFilename, sanitizePathSegment, uniqueFilePath } from "./storage.js";
 import type { GmailAccount, ProviderRule } from "./types.js";
@@ -35,6 +36,8 @@ const invoiceKeywords = [
   "payment",
   "subscription"
 ];
+
+const emailBodyInvoiceKeywords = ["invoice", "receipt", "faktura", "rachunek"];
 
 const genericProviderTerms = new Set([
   ...invoiceKeywords,
@@ -160,13 +163,17 @@ async function processMessage(
     return;
   }
 
+  progress.scannedMessages += 1;
+
+  if (provider.emailBodyPdf) {
+    await processEmailBodyInvoice(account, messageId, provider, archiveDir, progress, message);
+  }
+
   const pdfAttachments = message.attachments.filter(
     attachment =>
       attachment.filename.toLowerCase().endsWith(".pdf") ||
       attachment.mimeType.toLowerCase().includes("pdf")
   );
-
-  progress.scannedMessages += 1;
 
   for (const attachment of pdfAttachments) {
     const already = db
@@ -235,6 +242,94 @@ async function processMessage(
     });
     progress.savedInvoices += 1;
   }
+}
+
+async function processEmailBodyInvoice(
+  account: GmailAccount,
+  messageId: string,
+  provider: ProviderRule,
+  archiveDir: string,
+  progress: ScanProgress,
+  message: Awaited<ReturnType<typeof getParsedMessage>>
+) {
+  const syntheticAttachmentId = "email-body-pdf";
+  const already = db
+    .prepare(
+      "SELECT status, provider_domain FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ?"
+    )
+    .get(account.id, messageId, syntheticAttachmentId) as
+    | { status: string; provider_domain: string }
+    | undefined;
+  if (already?.status === "saved") {
+    progress.skippedDuplicates += 1;
+    return;
+  }
+
+  if (!isLikelyEmailInvoice(message, provider)) {
+    progress.skippedNonInvoices += 1;
+    return;
+  }
+
+  const sentDate = messageDate(message);
+  const receivedDate = message.internalDate ? new Date(Number(message.internalDate)) : sentDate;
+  const info = extractInvoiceInfo({
+    text: message.text,
+    emailSentDate: sentDate,
+    gmailReceivedDate: receivedDate
+  });
+  const month = invoiceMonth(info.invoiceDate);
+  const domainFolder = sanitizePathSegment(provider.targetDomain);
+  const directory = path.join(archiveDir, domainFolder);
+  const invoiceNumber = info.invoiceNumber ? sanitizeFilename(info.invoiceNumber) : "";
+  const fallbackName = sanitizeFilename(message.headers.subject || provider.id);
+  const filename = sanitizeFilename(
+    `${month}_${provider.targetDomain}_${invoiceNumber || fallbackName}.pdf`
+  );
+  const filePath = await uniqueFilePath(directory, filename);
+  const from = message.headers.from || "";
+  const replyTo = message.headers["reply-to"] || "";
+  const subject = message.headers.subject || "";
+  const pdf = renderEmailPdf({
+    title: `${provider.name} invoice email`,
+    headerLines: [
+      `Account: ${account.email}`,
+      `From: ${from}`,
+      replyTo ? `Reply-To: ${replyTo}` : "",
+      `Subject: ${subject}`,
+      `Date: ${message.headers.date || sentDate.toISOString()}`,
+      `Gmail message id: ${messageId}`
+    ].filter(Boolean),
+    body: message.text
+  });
+  const sha256 = createHash("sha256").update(pdf).digest("hex");
+  const duplicateByHash = db
+    .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved'")
+    .get(sha256) as { provider_domain: string; file_path: string } | undefined;
+  if (duplicateByHash?.provider_domain === provider.targetDomain) {
+    progress.skippedDuplicates += 1;
+    return;
+  }
+
+  await fs.writeFile(filePath, pdf);
+  insertProcessed({
+    accountId: account.id,
+    messageId,
+    attachmentId: syntheticAttachmentId,
+    providerDomain: provider.targetDomain,
+    sha256,
+    filePath,
+    invoiceMonth: month,
+    invoiceDate: info.invoiceDate,
+    dueDate: info.dueDate,
+    amount: info.amount,
+    currency: info.currency,
+    invoiceNumber: info.invoiceNumber,
+    dateSource: info.dateSource,
+    originalFilename: "email-body.pdf",
+    status: "saved",
+    error: null
+  });
+  progress.savedInvoices += 1;
 }
 
 function insertProcessed(input: {
@@ -314,13 +409,18 @@ function buildProviderQuery(provider: ProviderRule, afterQuery: string) {
     ? [...senderTerms, ...exactEmailTerms, ...replyToCandidateTerms]
     : [...senderTerms, ...exactEmailTerms, ...brandTerms];
   const providerGroup = providerTerms.join(" OR ");
-  const invoiceGroup = invoiceKeywords.join(" OR ");
+  const invoiceGroup = (provider.emailBodyPdf ? emailBodyInvoiceKeywords : invoiceKeywords).join(" OR ");
+  const brandGroup = brandTerms.join(" OR ");
+  const attachmentFilter = provider.emailBodyPdf ? "" : "has:attachment ";
 
   if (!providerGroup) {
-    return `after:${afterQuery} has:attachment (${invoiceGroup})`;
+    return `after:${afterQuery} ${attachmentFilter}(${invoiceGroup})`;
   }
 
-  return `after:${afterQuery} has:attachment (${providerGroup}) (${invoiceGroup})`;
+  const queryParts = [`after:${afterQuery}`, attachmentFilter.trim(), `(${providerGroup})`, `(${invoiceGroup})`]
+    .filter(Boolean);
+  if (provider.emailBodyPdf && brandGroup) queryParts.push(`(${brandGroup})`);
+  return queryParts.join(" ");
 }
 
 function messageMatchesProvider(message: Awaited<ReturnType<typeof getParsedMessage>>, provider: ProviderRule) {
@@ -369,6 +469,15 @@ function isLikelyInvoiceAttachment(
 ) {
   const text = `${filename} ${pdfText} ${messageText}`;
   const hasInvoiceCue = includesAny(text, invoiceKeywords);
+  if (!hasInvoiceCue) return false;
+
+  const brandTerms = providerBrandTerms(provider);
+  return brandTerms.length === 0 || includesAny(text, brandTerms);
+}
+
+function isLikelyEmailInvoice(message: Awaited<ReturnType<typeof getParsedMessage>>, provider: ProviderRule) {
+  const text = `${message.headers.subject || ""} ${message.snippet} ${message.text}`;
+  const hasInvoiceCue = includesAny(text, emailBodyInvoiceKeywords);
   if (!hasInvoiceCue) return false;
 
   const brandTerms = providerBrandTerms(provider);

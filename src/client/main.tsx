@@ -26,6 +26,7 @@ type Provider = {
   senderEmails: string[];
   searchTerms: string[];
   senderOnly: boolean;
+  emailBodyPdf: boolean;
   enabled: boolean;
 };
 
@@ -361,10 +362,20 @@ function App() {
                           />
                           Szukaj tylko po nadawcy
                         </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={provider.emailBodyPdf}
+                            onChange={event => updateProvider(provider.id, { emailBodyPdf: event.target.checked })}
+                          />
+                          Mail jako PDF
+                        </label>
                       </div>
                     </div>
                     <p className="provider-help">
-                      {provider.senderOnly
+                      {provider.emailBodyPdf
+                        ? "Dla tego dostawcy aplikacja może zapisać treść maila jako PDF, gdy faktura nie ma załącznika."
+                        : provider.senderOnly
                         ? "Frazy marki są wtedy dodatkowym filtrem dla PDF-a, ale nie wyszukują maili samodzielnie."
                         : "Frazy marki mogą znaleźć maila także wtedy, gdy nadawcą jest Stripe, Paddle albo inny pośrednik."}
                     </p>

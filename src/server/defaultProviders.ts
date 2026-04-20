@@ -9,6 +9,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["Suno", "invoice", "receipt", "billing", "payment"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -19,6 +20,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["Setapp", "Setapp Limited", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -29,6 +31,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["Leonardo", "Leonardo AI", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -39,6 +42,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["OpenAI", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -49,6 +53,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: ["team@elevenlabs.io"],
     searchTerms: ["ElevenLabs", "Eleven Labs", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -59,6 +64,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: ["support@udio.com"],
     searchTerms: ["Udio", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -69,16 +75,40 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["Google AI Studio", "Google", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
-    id: "canva",
-    name: "Canva.com",
-    targetDomain: "canva.com",
-    senderDomains: ["canva.com"],
-    senderEmails: [],
-    searchTerms: ["Canva", "invoice", "receipt", "billing"],
+    id: "capcut",
+    name: "CapCut",
+    targetDomain: "capcut.com",
+    senderDomains: ["email.apple.com"],
+    senderEmails: ["no_reply@email.apple.com"],
+    searchTerms: ["CapCut", "CapCut - Video Editor", "faktura", "invoice"],
     senderOnly: true,
+    emailBodyPdf: true,
+    enabled: true
+  },
+  {
+    id: "krea",
+    name: "Krea.ai",
+    targetDomain: "krea.ai",
+    senderDomains: ["krea.ai"],
+    senderEmails: ["support+billing@krea.ai"],
+    searchTerms: ["Krea", "invoice", "receipt", "billing"],
+    senderOnly: true,
+    emailBodyPdf: false,
+    enabled: true
+  },
+  {
+    id: "midjourney",
+    name: "Midjourney",
+    targetDomain: "midjourney.com",
+    senderDomains: ["midjourney.com"],
+    senderEmails: ["billing@midjourney.com"],
+    searchTerms: ["Midjourney", "Midjourney Inc", "invoice", "receipt", "billing"],
+    senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -89,6 +119,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["Perplexity", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -99,6 +130,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["JetBrains", "invoice", "receipt", "billing", "license"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   },
   {
@@ -109,6 +141,7 @@ export const defaultProviders: ProviderRule[] = [
     senderEmails: [],
     searchTerms: ["Wispr", "Wispr Flow", "invoice", "receipt", "billing"],
     senderOnly: true,
+    emailBodyPdf: false,
     enabled: true
   }
 ];

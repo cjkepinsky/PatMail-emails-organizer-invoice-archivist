@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS providers (
   sender_emails_json TEXT NOT NULL,
   search_terms_json TEXT NOT NULL,
   sender_only INTEGER NOT NULL DEFAULT 1,
+  email_body_pdf INTEGER NOT NULL DEFAULT 0,
   enabled INTEGER NOT NULL DEFAULT 1
 );
 
@@ -140,6 +141,7 @@ CREATE TABLE IF NOT EXISTS important_items (
 `);
 
 ensureColumn("providers", "sender_only", "INTEGER NOT NULL DEFAULT 1");
+ensureColumn("providers", "email_body_pdf", "INTEGER NOT NULL DEFAULT 0");
 
 function now() {
   return new Date().toISOString();
@@ -175,6 +177,50 @@ function mergeDefaultProviderSenderEmails(providerId: string, emails: string[]) 
   }
 }
 
+function removeProviderSearchTerms(providerId: string, terms: string[]) {
+  const row = db.prepare("SELECT search_terms_json FROM providers WHERE id = ?").get(providerId) as
+    | { search_terms_json: string }
+    | undefined;
+  if (!row) return;
+
+  const banned = new Set(terms.map(item => item.toLowerCase()));
+  const current = JSON.parse(row.search_terms_json) as string[];
+  const filtered = current.filter(item => !banned.has(item.toLowerCase()));
+  if (filtered.length !== current.length) {
+    db.prepare("UPDATE providers SET search_terms_json = ? WHERE id = ?").run(JSON.stringify(filtered), providerId);
+  }
+}
+
+function insertDefaultProvider(provider: ProviderRule) {
+  db.prepare(`
+    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, email_body_pdf, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    provider.id,
+    provider.name,
+    provider.targetDomain,
+    JSON.stringify(provider.senderDomains),
+    JSON.stringify(provider.senderEmails),
+    JSON.stringify(provider.searchTerms),
+    provider.senderOnly !== false ? 1 : 0,
+    provider.emailBodyPdf ? 1 : 0,
+    provider.enabled ? 1 : 0
+  );
+}
+
+function ensureDefaultProviders(providerIds: string[]) {
+  const existing = db.prepare("SELECT id FROM providers WHERE id = ?");
+  for (const provider of defaultProviders.filter(item => providerIds.includes(item.id))) {
+    if (existing.get(provider.id)) continue;
+    insertDefaultProvider(provider);
+  }
+}
+
+function deleteDeprecatedProviders(providerIds: string[]) {
+  const statement = db.prepare("DELETE FROM providers WHERE id = ?");
+  for (const id of providerIds) statement.run(id);
+}
+
 export function initDefaults() {
   const settings: AppSettings = {
     archiveDir: getSetting("archiveDir") || serverConfig.defaultArchiveDir,
@@ -191,23 +237,13 @@ export function initDefaults() {
 
   const existing = db.prepare("SELECT COUNT(*) AS count FROM providers").get() as { count: number };
   if (existing.count === 0) {
-    const insert = db.prepare(`
-      INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, enabled)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
     for (const provider of defaultProviders) {
-      insert.run(
-        provider.id,
-        provider.name,
-        provider.targetDomain,
-        JSON.stringify(provider.senderDomains),
-        JSON.stringify(provider.senderEmails),
-        JSON.stringify(provider.searchTerms),
-        provider.senderOnly !== false ? 1 : 0,
-        provider.enabled ? 1 : 0
-      );
+      insertDefaultProvider(provider);
     }
   }
+  deleteDeprecatedProviders(["canva"]);
+  ensureDefaultProviders(["capcut", "krea", "midjourney"]);
+  removeProviderSearchTerms("capcut", ["Apple"]);
   mergeDefaultProviderSenderEmails("elevenlabs", ["team@elevenlabs.io"]);
   mergeDefaultProviderSenderEmails("udio", ["support@udio.com"]);
 }
@@ -271,8 +307,8 @@ export function listProviders(): ProviderRule[] {
 
 export function upsertProvider(provider: ProviderRule) {
   db.prepare(`
-    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, email_body_pdf, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       target_domain = excluded.target_domain,
@@ -280,6 +316,7 @@ export function upsertProvider(provider: ProviderRule) {
       sender_emails_json = excluded.sender_emails_json,
       search_terms_json = excluded.search_terms_json,
       sender_only = excluded.sender_only,
+      email_body_pdf = excluded.email_body_pdf,
       enabled = excluded.enabled
   `).run(
     provider.id,
@@ -289,6 +326,7 @@ export function upsertProvider(provider: ProviderRule) {
     JSON.stringify(provider.senderEmails),
     JSON.stringify(provider.searchTerms),
     provider.senderOnly !== false ? 1 : 0,
+    provider.emailBodyPdf ? 1 : 0,
     provider.enabled ? 1 : 0
   );
 }
@@ -384,6 +422,7 @@ function mapProvider(row: Record<string, unknown>): ProviderRule {
     senderEmails: JSON.parse(String(row.sender_emails_json)) as string[],
     searchTerms: JSON.parse(String(row.search_terms_json)) as string[],
     senderOnly: row.sender_only === undefined ? true : Boolean(row.sender_only),
+    emailBodyPdf: row.email_body_pdf === undefined ? false : Boolean(row.email_body_pdf),
     enabled: Boolean(row.enabled)
   };
 }

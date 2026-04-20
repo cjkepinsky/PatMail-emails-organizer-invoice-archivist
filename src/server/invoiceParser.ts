@@ -7,6 +7,7 @@ const invoiceDateHints = [
   "issue date",
   "data wystawienia",
   "data faktury",
+  "faktura z dnia",
   "wystawiono",
   "receipt date"
 ];
@@ -104,7 +105,7 @@ function findAnyDate(text: string) {
   if (eu) return normalizeDate(Number(eu[3]), Number(eu[2]), Number(eu[1]));
 
   const named = text.match(
-    /\b(0?[1-9]|[12]\d|3[01])\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(20\d{2})\b/i
+    /\b(0?[1-9]|[12]\d|3[01])\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?|sty(?:czeń|cznia)?|lut(?:y|ego)?|mar(?:zec|ca)?|kwi(?:ecień|etnia)?|maj(?:a)?|cze(?:rwiec|rwca)?|lip(?:iec|ca)?|sie(?:rpień|rpnia)?|wrz(?:esień|eśnia)?|paź(?:dziernik|dziernika)?|paz(?:dziernik|dziernika)?|lis(?:topad|topada)?|gru(?:dzień|dnia)?)\s+(20\d{2})\b/i
   );
   if (named) return normalizeDate(Number(named[3]), monthName(named[2]), Number(named[1]));
 
@@ -124,7 +125,7 @@ function findAmount(text: string) {
 
 function findInvoiceNumber(text: string) {
   const match = text.match(
-    /\b(?:invoice number|invoice no\.?|receipt number|faktura nr|numer faktury|nr faktury)[:\s#-]{0,12}([A-Z0-9][A-Z0-9/_-]{2,})/i
+    /\b(?:invoice number|invoice no\.?|receipt number|document no\.?|faktura nr|numer faktury|nr faktury|nr dokumentu)[:\s#-]{0,12}([A-Z0-9][A-Z0-9/_-]{2,})/i
   );
   return match?.[1] || null;
 }
@@ -154,7 +155,19 @@ function monthName(input: string) {
     sep: 9,
     oct: 10,
     nov: 11,
-    dec: 12
+    dec: 12,
+    sty: 1,
+    lut: 2,
+    kwi: 4,
+    maj: 5,
+    cze: 6,
+    lip: 7,
+    sie: 8,
+    wrz: 9,
+    paź: 10,
+    paz: 10,
+    lis: 11,
+    gru: 12
   }[key] || 1;
 }
 

@@ -6,6 +6,7 @@ export type ProviderRule = {
   senderEmails: string[];
   searchTerms: string[];
   senderOnly: boolean;
+  emailBodyPdf: boolean;
   enabled: boolean;
 };
 
