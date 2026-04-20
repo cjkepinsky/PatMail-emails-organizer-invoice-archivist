@@ -209,6 +209,7 @@ export function initDefaults() {
     }
   }
   mergeDefaultProviderSenderEmails("elevenlabs", ["team@elevenlabs.io"]);
+  mergeDefaultProviderSenderEmails("udio", ["support@udio.com"]);
 }
 
 export function getAppSettings(): AppSettings {

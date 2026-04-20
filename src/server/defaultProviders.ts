@@ -56,7 +56,7 @@ export const defaultProviders: ProviderRule[] = [
     name: "Udio.com",
     targetDomain: "udio.com",
     senderDomains: ["udio.com"],
-    senderEmails: [],
+    senderEmails: ["support@udio.com"],
     searchTerms: ["Udio", "invoice", "receipt", "billing"],
     senderOnly: true,
     enabled: true
