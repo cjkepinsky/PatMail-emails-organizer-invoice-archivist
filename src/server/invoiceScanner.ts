@@ -167,25 +167,29 @@ async function processMessage(
   for (const attachment of pdfAttachments) {
     const already = db
       .prepare(
-        "SELECT id FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ?"
+        "SELECT status, provider_domain FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ?"
       )
-      .get(account.id, messageId, attachment.attachmentId);
-    if (already) {
+      .get(account.id, messageId, attachment.attachmentId) as
+      | { status: string; provider_domain: string }
+      | undefined;
+    if (already?.status === "saved") {
       progress.skippedDuplicates += 1;
       continue;
     }
 
     const buffer = await downloadAttachment(gmail, messageId, attachment.attachmentId);
     const sha256 = createHash("sha256").update(buffer).digest("hex");
-    const duplicateByHash = db.prepare("SELECT file_path FROM processed_attachments WHERE sha256 = ?").get(sha256);
-    if (duplicateByHash) {
+    const duplicateByHash = db
+      .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved'")
+      .get(sha256) as { provider_domain: string; file_path: string } | undefined;
+    if (duplicateByHash?.provider_domain === provider.targetDomain) {
       insertProcessed({
         accountId: account.id,
         messageId,
         attachmentId: attachment.attachmentId,
         providerDomain: provider.targetDomain,
         sha256,
-        filePath: String((duplicateByHash as { file_path: string }).file_path),
+        filePath: duplicateByHash.file_path,
         invoiceMonth: "duplicate",
         invoiceDate: null,
         dueDate: null,
@@ -266,12 +270,27 @@ function insertProcessed(input: {
   error: string | null;
 }) {
   db.prepare(`
-    INSERT OR IGNORE INTO processed_attachments(
+    INSERT INTO processed_attachments(
       id, account_id, message_id, attachment_id, provider_domain, sha256, file_path,
       invoice_month, invoice_date, due_date, amount, currency, invoice_number,
       date_source, original_filename, status, error, created_at
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(account_id, message_id, attachment_id) DO UPDATE SET
+      provider_domain = excluded.provider_domain,
+      sha256 = excluded.sha256,
+      file_path = excluded.file_path,
+      invoice_month = excluded.invoice_month,
+      invoice_date = excluded.invoice_date,
+      due_date = excluded.due_date,
+      amount = excluded.amount,
+      currency = excluded.currency,
+      invoice_number = excluded.invoice_number,
+      date_source = excluded.date_source,
+      original_filename = excluded.original_filename,
+      status = excluded.status,
+      error = excluded.error,
+      created_at = excluded.created_at
   `).run(
     randomUUID(),
     input.accountId,
