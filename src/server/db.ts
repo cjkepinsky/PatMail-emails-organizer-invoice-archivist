@@ -11,6 +11,15 @@ fs.mkdirSync(serverConfig.dataDir, { recursive: true });
 const dbPath = path.join(serverConfig.dataDir, "app.sqlite");
 export const db = new DatabaseSync(dbPath);
 
+export const defaultImportantCategories = [
+  "faktury i rachunki",
+  "płatności i terminy płatności",
+  "księgowość i podatki",
+  "bank i sprawy urzędowe",
+  "licencje i subskrypcje",
+  "maile od ważnych nadawców"
+];
+
 db.exec(`
 PRAGMA busy_timeout = 5000;
 PRAGMA journal_mode = WAL;
@@ -160,6 +169,17 @@ function setSetting(key: string, value: string) {
   ).run(key, value);
 }
 
+function parseJsonListSetting(key: string, fallback: string[] = []) {
+  try {
+    const parsed = JSON.parse(getSetting(key) || "[]") as unknown;
+    if (!Array.isArray(parsed)) return fallback;
+    const values = parsed.map(item => String(item).trim()).filter(Boolean);
+    return values.length ? values : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function mergeDefaultProviderSenderEmails(providerId: string, emails: string[]) {
   const row = db.prepare("SELECT sender_emails_json FROM providers WHERE id = ?").get(providerId) as
     | { sender_emails_json: string }
@@ -228,7 +248,8 @@ export function initDefaults() {
     llmBaseUrl: getSetting("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
     llmApiKey: getSetting("llmApiKey") || serverConfig.defaultLlmApiKey,
     llmModel: getSetting("llmModel") || serverConfig.defaultLlmModel,
-    importantSenders: JSON.parse(getSetting("importantSenders") || "[]") as string[]
+    importantSenders: parseJsonListSetting("importantSenders"),
+    importantCategories: parseJsonListSetting("importantCategories", defaultImportantCategories)
   };
 
   for (const [key, value] of Object.entries(settings)) {
@@ -255,7 +276,8 @@ export function getAppSettings(): AppSettings {
     llmBaseUrl: getSetting("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
     llmApiKey: getSetting("llmApiKey") || "",
     llmModel: getSetting("llmModel") || serverConfig.defaultLlmModel,
-    importantSenders: JSON.parse(getSetting("importantSenders") || "[]") as string[]
+    importantSenders: parseJsonListSetting("importantSenders"),
+    importantCategories: parseJsonListSetting("importantCategories", defaultImportantCategories)
   };
 }
 
@@ -266,9 +288,26 @@ export function updateAppSettings(input: Partial<AppSettings>) {
   if (input.llmApiKey !== undefined) setSetting("llmApiKey", input.llmApiKey);
   if (input.llmModel !== undefined) setSetting("llmModel", input.llmModel);
   if (input.importantSenders !== undefined) {
+    const current = parseJsonListSetting("importantSenders");
+    if (!sameList(current, input.importantSenders)) clearImportantItems();
     setSetting("importantSenders", JSON.stringify(input.importantSenders));
   }
+  if (input.importantCategories !== undefined) {
+    const categories = input.importantCategories.length ? input.importantCategories : defaultImportantCategories;
+    const current = parseJsonListSetting("importantCategories", defaultImportantCategories);
+    if (!sameList(current, categories)) clearImportantItems();
+    setSetting("importantCategories", JSON.stringify(categories));
+  }
   return getAppSettings();
+}
+
+function sameList(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item === right[index]);
+}
+
+function clearImportantItems() {
+  db.prepare("DELETE FROM important_items").run();
 }
 
 export function listAccounts(): GmailAccount[] {

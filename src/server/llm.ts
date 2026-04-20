@@ -36,6 +36,7 @@ export async function classifyMailWithLlm(input: {
   snippet: string;
   text: string;
   importantSenders: string[];
+  importantCategories: string[];
 }): Promise<MailClassification | null> {
   const settings = getAppSettings();
   if (!settings.llmBaseUrl) return null;
@@ -44,12 +45,13 @@ export async function classifyMailWithLlm(input: {
     {
       role: "system",
       content:
-        "Jesteś lokalnym asystentem pocztowym. Oceniasz, czy mail jest ważny dla użytkownika. Zwracaj wyłącznie JSON bez markdown. Priorytety: faktury, rachunki, terminy płatności, księgowość, bank, urząd, licencje komercyjne, odnowienia subskrypcji i maile od ważnych nadawców są ważne. Newslettery i marketing są nisko."
+        "Jesteś lokalnym asystentem pocztowym. Oceniasz, czy mail jest ważny dla użytkownika. Zwracaj wyłącznie JSON bez markdown. Jako ważne traktuj tylko maile pasujące do listy configured_important_categories albo od important_senders. Newslettery, marketing i luźne treści są nisko, chyba że wyraźnie pasują do skonfigurowanych kategorii."
     },
     {
       role: "user",
       content: JSON.stringify({
         important_senders: input.importantSenders,
+        configured_important_categories: input.importantCategories,
         mail: {
           from: input.from,
           subject: input.subject,
@@ -58,7 +60,7 @@ export async function classifyMailWithLlm(input: {
         },
         expected_json_schema: {
           priority: "high | medium | low",
-          category: "invoice | accounting | utilities | subscription | license | banking | legal | personal-important | noise | other",
+          category: "jedna z configured_important_categories albo noise | other",
           summary: "jedno krótkie zdanie po polsku",
           action_required: "co użytkownik powinien zrobić albo pusty string",
           due_date: "YYYY-MM-DD albo null",

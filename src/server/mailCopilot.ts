@@ -66,12 +66,14 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
             subject,
             snippet: message.snippet,
             text,
-            importantSenders: settings.importantSenders
+            importantSenders: settings.importantSenders,
+            importantCategories: settings.importantCategories
           })) || classifyWithRules({
             fromEmail: from.email,
             subject,
             text,
-            importantSenders: settings.importantSenders
+            importantSenders: settings.importantSenders,
+            importantCategories: settings.importantCategories
           });
 
         progress.scannedMessages += 1;
@@ -182,27 +184,99 @@ function classifyWithRules(input: {
   subject: string;
   text: string;
   importantSenders: string[];
+  importantCategories: string[];
 }) {
   const haystack = `${input.fromEmail} ${input.subject} ${input.text}`.toLowerCase();
   const senderImportant = input.importantSenders.some(sender =>
     input.fromEmail.includes(sender.toLowerCase())
   );
-  const hasInvoice = /(invoice|faktura|rachunek|receipt|payment due|termin płatności|platne do|płatne do)/i.test(
-    haystack
-  );
-  const hasAuthority = /(bank|urząd|urzad|tax|podatek|księg|ksieg|accountant|legal|lawyer)/i.test(haystack);
-  const hasLicense = /(license|licencja|subscription|renewal|odnowienie|commercial)/i.test(haystack);
-
-  const priority = senderImportant || hasInvoice || hasAuthority ? "high" : hasLicense ? "medium" : "low";
+  const match = findImportantCategory(haystack, input.importantCategories);
+  const priority = senderImportant || match?.priority === "high" ? "high" : match?.priority === "medium" ? "medium" : "low";
   return {
     priority: priority as "high" | "medium" | "low",
-    category: hasInvoice ? "invoice" : hasAuthority ? "accounting" : hasLicense ? "license" : "other",
+    category: match?.category || (senderImportant ? "maile od ważnych nadawców" : "other"),
     summary: input.subject || "Wiadomość może wymagać uwagi.",
-    action_required: hasInvoice ? "Sprawdź termin płatności lub archiwum faktur." : "",
+    action_required: match?.actionRequired || "",
     due_date: null,
     amount: null,
     currency: null
   };
+}
+
+function findImportantCategory(haystack: string, categories: string[]) {
+  const configured = categories.map(category => ({
+    raw: category,
+    normalized: normalize(category)
+  }));
+
+  const candidates = [
+    {
+      hints: ["faktur", "rachun", "invoice", "receipt"],
+      regex: /(invoice|faktura|rachunek|receipt|payment due|termin płatności|termin platnosci|platne do|płatne do)/i,
+      priority: "high",
+      actionRequired: "Sprawdź termin płatności lub archiwum faktur."
+    },
+    {
+      hints: ["platn", "płat", "payment", "termin"],
+      regex: /(payment due|termin płatności|termin platnosci|platne do|płatne do|payment failed|card declined|amount due)/i,
+      priority: "high",
+      actionRequired: "Sprawdź płatność albo termin."
+    },
+    {
+      hints: ["ksieg", "księg", "podat", "urzad", "urząd", "accounting", "tax", "legal", "praw"],
+      regex: /(urząd|urzad|tax|podatek|księg|ksieg|accountant|legal|lawyer|zus|vat)/i,
+      priority: "high",
+      actionRequired: "Sprawdź, czy wymaga odpowiedzi lub płatności."
+    },
+    {
+      hints: ["bank"],
+      regex: /(bank|transaction|charge|payment card|konto|przelew)/i,
+      priority: "high",
+      actionRequired: "Sprawdź operację lub komunikat bankowy."
+    },
+    {
+      hints: ["licenc", "subskry", "subscription", "renewal", "commercial"],
+      regex: /(license|licencja|subscription|renewal|odnowienie|commercial|plan renewed)/i,
+      priority: "medium",
+      actionRequired: ""
+    },
+    {
+      hints: ["prac", "job", "rekrut", "career", "hiring"],
+      regex: /(oferta pracy|job offer|recruiter|rekrut|hiring|career|interview|linkedin jobs|nofluffjobs)/i,
+      priority: "medium",
+      actionRequired: ""
+    },
+    {
+      hints: ["media", "internet", "gaz", "prad", "prąd", "woda", "utilities"],
+      regex: /(internet|energia|prąd|prad|gaz|woda|utilities|operator|faktura za)/i,
+      priority: "high",
+      actionRequired: "Sprawdź termin płatności."
+    }
+  ];
+
+  for (const candidate of candidates) {
+    const category = configured.find(item =>
+      candidate.hints.some(hint => item.normalized.includes(normalize(hint)))
+    );
+    if (category && candidate.regex.test(haystack)) {
+      return {
+        category: category.raw,
+        priority: candidate.priority as "high" | "medium",
+        actionRequired: candidate.actionRequired
+      };
+    }
+  }
+  return null;
+}
+
+function normalize(input: string) {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ł/g, "l")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function formatGmailDate(date: Date) {

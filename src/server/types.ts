@@ -17,6 +17,7 @@ export type AppSettings = {
   llmApiKey: string;
   llmModel: string;
   importantSenders: string[];
+  importantCategories: string[];
 };
 
 export type GmailAccount = {

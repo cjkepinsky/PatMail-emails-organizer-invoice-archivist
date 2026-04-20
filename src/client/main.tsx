@@ -9,6 +9,7 @@ type Settings = {
   llmApiKey: string;
   llmModel: string;
   importantSenders: string;
+  importantCategories: string;
 };
 
 type Account = {
@@ -137,6 +138,7 @@ function App() {
       body: JSON.stringify(settings)
     });
     setSettings(saved);
+    await refreshLists();
     setStatus("Ustawienia zapisane.");
   }
 
@@ -287,6 +289,17 @@ function App() {
                   placeholder="ksiegowa@example.com&#10;biuro rachunkowe&#10;bank"
                 />
               </label>
+              <label className="full">
+                Kategorie ważnych maili, po jednej w linii
+                <textarea
+                  value={settings.importantCategories}
+                  onChange={event => setSettings({ ...settings, importantCategories: event.target.value })}
+                  placeholder="faktury i rachunki&#10;płatności i terminy płatności&#10;oferty pracy"
+                />
+              </label>
+              <p className="muted full">
+                Model będzie traktował jako ważne tylko maile pasujące do tych kategorii albo do ważnych nadawców.
+              </p>
               <div className="modal-actions full">
                 <button className="button" type="submit">
                   Zapisz ustawienia

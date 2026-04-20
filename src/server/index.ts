@@ -57,6 +57,10 @@ app.post("/api/settings", (req, res) => {
     importantSenders: String(body.importantSenders || "")
       .split(/\n|,/)
       .map(item => item.trim())
+      .filter(Boolean),
+    importantCategories: String(body.importantCategories || "")
+      .split(/\n|,/)
+      .map(item => item.trim())
       .filter(Boolean)
   });
   res.json({ ...settings, llmApiKey: settings.llmApiKey ? "configured" : "" });
@@ -172,7 +176,8 @@ function safeSettings() {
   return {
     ...settings,
     llmApiKey: settings.llmApiKey ? "configured" : "",
-    importantSenders: settings.importantSenders.join("\n")
+    importantSenders: settings.importantSenders.join("\n"),
+    importantCategories: settings.importantCategories.join("\n")
   };
 }
 
