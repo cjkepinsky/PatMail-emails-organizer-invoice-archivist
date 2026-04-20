@@ -67,6 +67,12 @@ type ImportantItem = {
   receivedAt: string;
 };
 
+type CleanupResult = {
+  checkedSavedFiles: number;
+  removedMissingFileRows: number;
+  removedDuplicateRows: number;
+};
+
 function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -176,6 +182,18 @@ function App() {
     });
     setProviders(saved);
     setStatus(`Zapisano dostawcę: ${provider.name}.`);
+  }
+
+  async function cleanupInvoiceIndex() {
+    setStatus("Naprawiam indeks faktur...");
+    const response = await api("/api/invoices/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ removeMissingFiles: true, removeDuplicateRows: true })
+    }) as { result: CleanupResult; invoices: Invoice[] };
+    setInvoices(response.invoices);
+    setStatus(
+      `Indeks naprawiony: sprawdzono ${response.result.checkedSavedFiles}, usunięto brakujące ${response.result.removedMissingFileRows}, duplikaty ${response.result.removedDuplicateRows}.`
+    );
   }
 
   function updateProvider(providerId: string, patch: Partial<Provider>) {
@@ -298,6 +316,19 @@ function App() {
                   ))}
                 </ul>
               )}
+            </div>
+
+            <div className="settings-section">
+              <div className="section-title">
+                <h2>Indeks faktur</h2>
+                <span>porządki</span>
+              </div>
+              <p className="muted">
+                Użyj tego po ręcznym usunięciu plików albo po poprawkach konfiguracji dostawców. Aplikacja wyczyści pamięć o brakujących plikach i starych duplikatach.
+              </p>
+              <button className="button secondary" onClick={() => void cleanupInvoiceIndex()}>
+                Napraw indeks faktur
+              </button>
             </div>
 
             <div className="settings-section">

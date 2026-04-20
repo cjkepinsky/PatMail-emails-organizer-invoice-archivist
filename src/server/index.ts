@@ -12,6 +12,7 @@ import {
   listImportantItems,
   listInvoices,
   listProviders,
+  cleanupInvoiceIndex,
   updateAppSettings,
   upsertAccount,
   upsertProvider
@@ -128,6 +129,14 @@ app.get("/api/jobs/:id", (req, res) => {
 
 app.get("/api/invoices", (_req, res) => {
   res.json(listInvoices());
+});
+
+app.post("/api/invoices/cleanup", (req, res) => {
+  const result = cleanupInvoiceIndex({
+    removeMissingFiles: req.body?.removeMissingFiles !== false,
+    removeDuplicateRows: req.body?.removeDuplicateRows !== false
+  });
+  res.json({ result, invoices: listInvoices() });
 });
 
 app.get("/api/important", (_req, res) => {

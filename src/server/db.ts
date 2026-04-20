@@ -325,6 +325,37 @@ export function listInvoices() {
     .all();
 }
 
+export function cleanupInvoiceIndex(options: { removeMissingFiles?: boolean; removeDuplicateRows?: boolean }) {
+  const result = {
+    checkedSavedFiles: 0,
+    removedMissingFileRows: 0,
+    removedDuplicateRows: 0
+  };
+
+  if (options.removeMissingFiles !== false) {
+    const rows = db
+      .prepare("SELECT id, file_path FROM processed_attachments WHERE status = 'saved'")
+      .all() as { id: string; file_path: string }[];
+    const deleteRow = db.prepare("DELETE FROM processed_attachments WHERE id = ?");
+
+    for (const row of rows) {
+      result.checkedSavedFiles += 1;
+      if (fs.existsSync(row.file_path)) continue;
+      deleteRow.run(row.id);
+      result.removedMissingFileRows += 1;
+    }
+  }
+
+  if (options.removeDuplicateRows !== false) {
+    const deleted = db.prepare("DELETE FROM processed_attachments WHERE status = 'duplicate'").run() as {
+      changes: number;
+    };
+    result.removedDuplicateRows = deleted.changes;
+  }
+
+  return result;
+}
+
 export function listImportantItems(): ImportantItem[] {
   return db
     .prepare("SELECT * FROM important_items ORDER BY received_at DESC LIMIT 100")
