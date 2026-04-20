@@ -24,7 +24,9 @@ export function renderEmailPdf(input: EmailPdfInput) {
   const objects: string[] = [];
 
   objects.push("<< /Type /Catalog /Pages 2 0 R >>");
-  objects.push(`<< /Type /Pages /Kids ${pages.map((_, index) => `${3 + index * 2} 0 R`).join(" ")} /Count ${pages.length} >>`);
+  objects.push(
+    `<< /Type /Pages /Kids [${pages.map((_, index) => `${3 + index * 2} 0 R`).join(" ")}] /Count ${pages.length} >>`
+  );
 
   pages.forEach((pageLines, index) => {
     const pageObjectId = 3 + index * 2;
