@@ -277,6 +277,12 @@ textarea {
   gap: 2px;
 }
 
+.provider-help {
+  margin: -2px 0 2px;
+  color: #637069;
+  font-size: 0.88rem;
+}
+
 .provider-switches {
   flex-wrap: wrap;
   justify-content: flex-end;

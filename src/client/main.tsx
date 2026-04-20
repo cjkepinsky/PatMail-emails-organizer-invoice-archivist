@@ -328,13 +328,18 @@ function App() {
                             checked={provider.senderOnly}
                             onChange={event => updateProvider(provider.id, { senderOnly: event.target.checked })}
                           />
-                          Dopasuj po nadawcy
+                          Szukaj tylko po nadawcy
                         </label>
                       </div>
                     </div>
+                    <p className="provider-help">
+                      {provider.senderOnly
+                        ? "Frazy marki są wtedy dodatkowym filtrem dla PDF-a, ale nie wyszukują maili samodzielnie."
+                        : "Frazy marki mogą znaleźć maila także wtedy, gdy nadawcą jest Stripe, Paddle albo inny pośrednik."}
+                    </p>
                     <div className="provider-fields">
                       <label>
-                        Domeny lub fragmenty adresu nadawcy
+                        Fragmenty adresu nadawcy, pole From
                         <textarea
                           value={provider.senderDomains.join("\n")}
                           onChange={event =>
@@ -352,7 +357,7 @@ function App() {
                         />
                       </label>
                       <label className="full">
-                        Frazy marki w treści maila lub faktury
+                        Frazy marki w temacie, treści maila albo PDF-ie
                         <textarea
                           value={provider.searchTerms.join("\n")}
                           onChange={event =>
