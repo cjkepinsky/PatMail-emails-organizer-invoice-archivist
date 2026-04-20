@@ -100,8 +100,7 @@ h2 {
 
 .section-title,
 .job-strip,
-.feed-item,
-.provider-list li {
+.feed-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -256,6 +255,53 @@ textarea {
   border-bottom: 1px solid #e4ebe2;
 }
 
+.provider-list li {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.provider-header,
+.provider-switches,
+.provider-switches label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.provider-header {
+  justify-content: space-between;
+}
+
+.provider-header div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.provider-switches {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.provider-switches label {
+  color: #3f4d45;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.provider-switches input {
+  width: auto;
+}
+
+.provider-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.provider-fields textarea {
+  min-height: 74px;
+}
+
 .small-button {
   min-height: 30px;
   padding: 0 10px;
@@ -335,6 +381,16 @@ th {
 
   .settings-form {
     grid-template-columns: 1fr;
+  }
+
+  .provider-header,
+  .provider-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .full {

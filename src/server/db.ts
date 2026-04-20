@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS providers (
   sender_domains_json TEXT NOT NULL,
   sender_emails_json TEXT NOT NULL,
   search_terms_json TEXT NOT NULL,
+  sender_only INTEGER NOT NULL DEFAULT 1,
   enabled INTEGER NOT NULL DEFAULT 1
 );
 
@@ -138,6 +139,8 @@ CREATE TABLE IF NOT EXISTS important_items (
 );
 `);
 
+ensureColumn("providers", "sender_only", "INTEGER NOT NULL DEFAULT 1");
+
 function now() {
   return new Date().toISOString();
 }
@@ -172,8 +175,8 @@ export function initDefaults() {
   const existing = db.prepare("SELECT COUNT(*) AS count FROM providers").get() as { count: number };
   if (existing.count === 0) {
     const insert = db.prepare(`
-      INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, enabled)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, enabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const provider of defaultProviders) {
       insert.run(
@@ -183,6 +186,7 @@ export function initDefaults() {
         JSON.stringify(provider.senderDomains),
         JSON.stringify(provider.senderEmails),
         JSON.stringify(provider.searchTerms),
+        provider.senderOnly !== false ? 1 : 0,
         provider.enabled ? 1 : 0
       );
     }
@@ -248,14 +252,15 @@ export function listProviders(): ProviderRule[] {
 
 export function upsertProvider(provider: ProviderRule) {
   db.prepare(`
-    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       target_domain = excluded.target_domain,
       sender_domains_json = excluded.sender_domains_json,
       sender_emails_json = excluded.sender_emails_json,
       search_terms_json = excluded.search_terms_json,
+      sender_only = excluded.sender_only,
       enabled = excluded.enabled
   `).run(
     provider.id,
@@ -264,6 +269,7 @@ export function upsertProvider(provider: ProviderRule) {
     JSON.stringify(provider.senderDomains),
     JSON.stringify(provider.senderEmails),
     JSON.stringify(provider.searchTerms),
+    provider.senderOnly !== false ? 1 : 0,
     provider.enabled ? 1 : 0
   );
 }
@@ -327,8 +333,16 @@ function mapProvider(row: Record<string, unknown>): ProviderRule {
     senderDomains: JSON.parse(String(row.sender_domains_json)) as string[],
     senderEmails: JSON.parse(String(row.sender_emails_json)) as string[],
     searchTerms: JSON.parse(String(row.search_terms_json)) as string[],
+    senderOnly: row.sender_only === undefined ? true : Boolean(row.sender_only),
     enabled: Boolean(row.enabled)
   };
+}
+
+function ensureColumn(table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some(item => item.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 function mapJob(row: Record<string, unknown>): ScanJob {

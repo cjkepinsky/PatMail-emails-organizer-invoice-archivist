@@ -8,6 +8,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["suno.com"],
     senderEmails: [],
     searchTerms: ["Suno", "invoice", "receipt", "billing", "payment"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -17,6 +18,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["setapp.com", "macpaw.com", "paddle.com"],
     senderEmails: [],
     searchTerms: ["Setapp", "Setapp Limited", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -26,6 +28,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["leonardo.ai"],
     senderEmails: [],
     searchTerms: ["Leonardo", "Leonardo AI", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -35,6 +38,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["openai.com"],
     senderEmails: [],
     searchTerms: ["OpenAI", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -44,6 +48,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["elevenlabs.io", "elevenlabs.com", "stripe.com"],
     senderEmails: [],
     searchTerms: ["ElevenLabs", "Eleven Labs", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -53,6 +58,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["udio.com"],
     senderEmails: [],
     searchTerms: ["Udio", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -62,6 +68,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["google.com", "payments.google.com"],
     senderEmails: [],
     searchTerms: ["Google AI Studio", "Google", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -71,6 +78,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["canva.com"],
     senderEmails: [],
     searchTerms: ["Canva", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -80,6 +88,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["perplexity.ai", "stripe.com"],
     senderEmails: [],
     searchTerms: ["Perplexity", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -89,6 +98,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["jetbrains.com"],
     senderEmails: [],
     searchTerms: ["JetBrains", "invoice", "receipt", "billing", "license"],
+    senderOnly: true,
     enabled: true
   },
   {
@@ -98,6 +108,7 @@ export const defaultProviders: ProviderRule[] = [
     senderDomains: ["wisprflow.ai", "stripe.com"],
     senderEmails: [],
     searchTerms: ["Wispr", "Wispr Flow", "invoice", "receipt", "billing"],
+    senderOnly: true,
     enabled: true
   }
 ];

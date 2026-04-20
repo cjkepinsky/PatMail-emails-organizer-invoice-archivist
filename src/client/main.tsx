@@ -25,6 +25,7 @@ type Provider = {
   senderDomains: string[];
   senderEmails: string[];
   searchTerms: string[];
+  senderOnly: boolean;
   enabled: boolean;
 };
 
@@ -168,6 +169,21 @@ function App() {
     setStatus("Konto odłączone. Podłącz je ponownie, żeby odświeżyć zakresy OAuth.");
   }
 
+  async function saveProvider(provider: Provider) {
+    const saved = await api("/api/providers", {
+      method: "POST",
+      body: JSON.stringify(provider)
+    });
+    setProviders(saved);
+    setStatus(`Zapisano dostawcę: ${provider.name}.`);
+  }
+
+  function updateProvider(providerId: string, patch: Partial<Provider>) {
+    setProviders(current =>
+      current.map(provider => (provider.id === providerId ? { ...provider, ...patch } : provider))
+    );
+  }
+
   if (!settings) {
     return <main className="shell">Ładuję lokalny panel...</main>;
   }
@@ -292,8 +308,62 @@ function App() {
               <ul className="provider-list">
                 {providers.map(provider => (
                   <li key={provider.id}>
-                    <strong>{provider.targetDomain}</strong>
-                    <span>{provider.name}</span>
+                    <div className="provider-header">
+                      <div>
+                        <strong>{provider.targetDomain}</strong>
+                        <span>{provider.name}</span>
+                      </div>
+                      <div className="provider-switches">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={provider.enabled}
+                            onChange={event => updateProvider(provider.id, { enabled: event.target.checked })}
+                          />
+                          Aktywny
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={provider.senderOnly}
+                            onChange={event => updateProvider(provider.id, { senderOnly: event.target.checked })}
+                          />
+                          Dopasuj po nadawcy
+                        </label>
+                      </div>
+                    </div>
+                    <div className="provider-fields">
+                      <label>
+                        Domeny lub fragmenty adresu nadawcy
+                        <textarea
+                          value={provider.senderDomains.join("\n")}
+                          onChange={event =>
+                            updateProvider(provider.id, { senderDomains: lines(event.target.value) })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Konkretne adresy nadawcy
+                        <textarea
+                          value={provider.senderEmails.join("\n")}
+                          onChange={event =>
+                            updateProvider(provider.id, { senderEmails: lines(event.target.value) })
+                          }
+                        />
+                      </label>
+                      <label className="full">
+                        Frazy marki w treści maila lub faktury
+                        <textarea
+                          value={provider.searchTerms.join("\n")}
+                          onChange={event =>
+                            updateProvider(provider.id, { searchTerms: lines(event.target.value) })
+                          }
+                        />
+                      </label>
+                    </div>
+                    <button className="small-button" onClick={() => void saveProvider(provider)}>
+                      Zapisz dostawcę
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -418,6 +488,13 @@ async function api(path: string, options: RequestInit = {}) {
 function shortPath(filePath: string) {
   const parts = filePath.split("/");
   return parts.slice(-3).join("/");
+}
+
+function lines(value: string) {
+  return value
+    .split(/\n|,/)
+    .map(item => item.trim())
+    .filter(Boolean);
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

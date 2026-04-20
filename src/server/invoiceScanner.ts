@@ -2,7 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { db, getAppSettings, listAccounts, listProviders, updateJob } from "./db.js";
-import { downloadAttachment, getParsedMessage, gmailForAccount, listMessageIds, messageDate } from "./gmail.js";
+import {
+  downloadAttachment,
+  getParsedMessage,
+  gmailForAccount,
+  listMessageIds,
+  messageDate,
+  parseFromHeader
+} from "./gmail.js";
 import { extractInvoiceInfo, extractPdfText, invoiceMonth } from "./invoiceParser.js";
 import { sanitizeFilename, sanitizePathSegment, uniqueFilePath } from "./storage.js";
 import type { GmailAccount, ProviderRule } from "./types.js";
@@ -14,8 +21,32 @@ type ScanProgress = {
   scannedMessages: number;
   savedInvoices: number;
   skippedDuplicates: number;
+  skippedSenderMismatch: number;
+  skippedNonInvoices: number;
   errors: number;
 };
+
+const invoiceKeywords = [
+  "invoice",
+  "receipt",
+  "faktura",
+  "rachunek",
+  "billing",
+  "payment",
+  "subscription"
+];
+
+const genericProviderTerms = new Set([
+  ...invoiceKeywords,
+  "paid",
+  "payment method",
+  "amount",
+  "total",
+  "license",
+  "subscription"
+]);
+
+const sharedBillingDomains = new Set(["stripe.com", "paddle.com", "paypal.com"]);
 
 export async function runInvoiceBackfill(
   jobId: string,
@@ -51,6 +82,8 @@ export async function runInvoiceBackfill(
     scannedMessages: 0,
     savedInvoices: 0,
     skippedDuplicates: 0,
+    skippedSenderMismatch: 0,
+    skippedNonInvoices: 0,
     errors: 0
   };
 
@@ -118,6 +151,11 @@ async function processMessage(
 ) {
   const gmail = gmailForAccount(account);
   const message = await getParsedMessage(gmail, messageId);
+  if (!messageMatchesProvider(message, provider)) {
+    progress.skippedSenderMismatch += 1;
+    return;
+  }
+
   const pdfAttachments = message.attachments.filter(
     attachment =>
       attachment.filename.toLowerCase().endsWith(".pdf") ||
@@ -164,6 +202,11 @@ async function processMessage(
     }
 
     const pdfText = await extractPdfText(buffer);
+    if (!isLikelyInvoiceAttachment(attachment.filename, pdfText, message.text, provider)) {
+      progress.skippedNonInvoices += 1;
+      continue;
+    }
+
     const sentDate = messageDate(message);
     const receivedDate = message.internalDate ? new Date(Number(message.internalDate)) : sentDate;
     const info = extractInvoiceInfo({
@@ -252,21 +295,91 @@ function insertProcessed(input: {
 }
 
 function buildProviderQuery(provider: ProviderRule, afterQuery: string) {
-  const domainTerms = provider.senderDomains.map(domain => `from:${domain}`);
-  const emailTerms = provider.senderEmails.map(email => `from:${email}`);
-  const textTerms = provider.searchTerms.map(term => `"${term.replaceAll('"', "")}"`);
-  const providerGroup = [...domainTerms, ...emailTerms, ...textTerms].join(" OR ");
-  const invoiceGroup = [
-    "invoice",
-    "receipt",
-    "faktura",
-    "rachunek",
-    "billing",
-    "payment",
-    "subscription"
-  ].join(" OR ");
+  const senderTerms = [...provider.senderDomains, ...provider.senderEmails]
+    .map(term => term.trim())
+    .filter(Boolean)
+    .map(term => `from:${sanitizeGmailTerm(term)}`);
+  const brandTerms = providerBrandTerms(provider).map(term => `"${sanitizeGmailTerm(term)}"`);
+  const providerTerms = provider.senderOnly
+    ? senderTerms
+    : [...senderTerms, ...brandTerms];
+  const providerGroup = providerTerms.join(" OR ");
+  const invoiceGroup = invoiceKeywords.join(" OR ");
+
+  if (!providerGroup) {
+    return `after:${afterQuery} has:attachment (${invoiceGroup})`;
+  }
 
   return `after:${afterQuery} has:attachment (${providerGroup}) (${invoiceGroup})`;
+}
+
+function messageMatchesProvider(message: Awaited<ReturnType<typeof getParsedMessage>>, provider: ProviderRule) {
+  const from = parseFromHeader(message.headers.from || "");
+  const senderMatch = senderMatchesProvider(from.email, provider);
+  if (senderMatch.direct) return true;
+
+  const brandTerms = providerBrandTerms(provider);
+  const hasBrand = includesAny(
+    `${from.name} ${from.email} ${message.headers.subject || ""} ${message.snippet} ${message.text}`,
+    brandTerms
+  );
+
+  if (senderMatch.sharedBilling) return hasBrand;
+  if (provider.senderOnly) return false;
+  return hasBrand;
+}
+
+function senderMatchesProvider(email: string, provider: ProviderRule) {
+  const normalizedEmail = normalizeMatchValue(email);
+  const emailMatch = provider.senderEmails
+    .map(normalizeMatchValue)
+    .filter(Boolean)
+    .some(term => normalizedEmail.includes(term));
+
+  if (emailMatch) return { direct: true, sharedBilling: false };
+
+  let direct = false;
+  let sharedBilling = false;
+  for (const domain of provider.senderDomains.map(normalizeMatchValue).filter(Boolean)) {
+    if (!normalizedEmail.includes(domain)) continue;
+    if (sharedBillingDomains.has(domain)) sharedBilling = true;
+    else direct = true;
+  }
+
+  return { direct, sharedBilling };
+}
+
+function isLikelyInvoiceAttachment(
+  filename: string,
+  pdfText: string,
+  messageText: string,
+  provider: ProviderRule
+) {
+  const text = `${filename} ${pdfText} ${messageText}`;
+  const hasInvoiceCue = includesAny(text, invoiceKeywords);
+  if (!hasInvoiceCue) return false;
+
+  const brandTerms = providerBrandTerms(provider);
+  return brandTerms.length === 0 || includesAny(text, brandTerms);
+}
+
+function providerBrandTerms(provider: ProviderRule) {
+  return provider.searchTerms
+    .map(term => term.trim())
+    .filter(term => term && !genericProviderTerms.has(term.toLowerCase()));
+}
+
+function includesAny(text: string, terms: string[]) {
+  const normalizedText = normalizeMatchValue(text);
+  return terms.map(normalizeMatchValue).filter(Boolean).some(term => normalizedText.includes(term));
+}
+
+function normalizeMatchValue(value: string) {
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function sanitizeGmailTerm(term: string) {
+  return term.replaceAll('"', "").trim();
 }
 
 function formatGmailDate(date: Date) {

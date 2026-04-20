@@ -5,6 +5,7 @@ export type ProviderRule = {
   senderDomains: string[];
   senderEmails: string[];
   searchTerms: string[];
+  senderOnly: boolean;
   enabled: boolean;
 };
 
