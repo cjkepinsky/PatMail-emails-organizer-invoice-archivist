@@ -74,6 +74,7 @@ function App() {
   const [importantItems, setImportantItems] = useState<ImportantItem[]>([]);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [status, setStatus] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
 
@@ -176,12 +177,11 @@ function App() {
       <section className="topbar">
         <div>
           <p className="eyebrow">Invoice Archivist MVP</p>
-          <h1>Poczta bez chaosu, faktury bez ręcznego kopania.</h1>
         </div>
         <div className="top-actions">
-          <a className="button secondary" href="/api/auth/google/start">
-            Podłącz Gmail
-          </a>
+          <button className="button secondary" onClick={() => setSettingsOpen(true)}>
+            Ustawienia
+          </button>
           <button className="button" onClick={startInvoiceScan}>
             Skanuj faktury
           </button>
@@ -190,6 +190,117 @@ function App() {
           </button>
         </div>
       </section>
+
+      {settingsOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
+          <section
+            className="settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-title"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <p className="eyebrow">Konfiguracja</p>
+                <h2 id="settings-title">Ustawienia</h2>
+              </div>
+              <button className="small-button" onClick={() => setSettingsOpen(false)}>
+                Zamknij
+              </button>
+            </div>
+
+            <form className="settings-form" onSubmit={saveSettings}>
+              <label>
+                Folder archiwum faktur
+                <input
+                  value={settings.archiveDir}
+                  onChange={event => setSettings({ ...settings, archiveDir: event.target.value })}
+                  placeholder="/Users/krzysztof/Documents/Faktury"
+                />
+              </label>
+              <label>
+                Historyczny skan
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={settings.historyYears}
+                  onChange={event => setSettings({ ...settings, historyYears: Number(event.target.value) })}
+                />
+              </label>
+              <label>
+                Lokalny LLM URL
+                <input
+                  value={settings.llmBaseUrl}
+                  onChange={event => setSettings({ ...settings, llmBaseUrl: event.target.value })}
+                />
+              </label>
+              <label>
+                Model
+                <input
+                  value={settings.llmModel}
+                  onChange={event => setSettings({ ...settings, llmModel: event.target.value })}
+                  placeholder="auto"
+                />
+              </label>
+              <label className="full">
+                Ważni nadawcy, po jednym w linii
+                <textarea
+                  value={settings.importantSenders}
+                  onChange={event => setSettings({ ...settings, importantSenders: event.target.value })}
+                  placeholder="ksiegowa@example.com&#10;biuro rachunkowe&#10;bank"
+                />
+              </label>
+              <div className="modal-actions full">
+                <button className="button" type="submit">
+                  Zapisz ustawienia
+                </button>
+                <span>{status}</span>
+              </div>
+            </form>
+
+            <div className="settings-section">
+              <div className="section-title">
+                <h2>Konta Gmail</h2>
+                <span>{accounts.length}</span>
+              </div>
+              <a className="button secondary" href="/api/auth/google/start">
+                Podłącz Gmail
+              </a>
+              {accounts.length === 0 ? (
+                <p className="muted">Podłącz konta przez Google OAuth. Możesz dodać 4-5 skrzynek po kolei.</p>
+              ) : (
+                <ul className="plain-list">
+                  {accounts.map(account => (
+                    <li key={account.id}>
+                      <span>{account.email}</span>
+                      <button className="small-button" onClick={() => void disconnectAccount(account.id)}>
+                        Odłącz
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="settings-section">
+              <div className="section-title">
+                <h2>Dostawcy</h2>
+                <span>{providers.filter(provider => provider.enabled).length}</span>
+              </div>
+              <ul className="provider-list">
+                {providers.map(provider => (
+                  <li key={provider.id}>
+                    <strong>{provider.targetDomain}</strong>
+                    <span>{provider.name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        </div>
+      )}
 
       <section className="important-feed">
         <div className="section-title">
@@ -230,97 +341,6 @@ function App() {
           {activeJob.error && <span className="error">{activeJob.error}</span>}
         </section>
       )}
-
-      <div className="grid">
-        <section className="panel wide">
-          <div className="section-title">
-            <h2>Ustawienia</h2>
-            <span>{status}</span>
-          </div>
-          <form className="settings-form" onSubmit={saveSettings}>
-            <label>
-              Folder archiwum faktur
-              <input
-                value={settings.archiveDir}
-                onChange={event => setSettings({ ...settings, archiveDir: event.target.value })}
-                placeholder="/Users/krzysztof/Documents/Faktury"
-              />
-            </label>
-            <label>
-              Historyczny skan
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={settings.historyYears}
-                onChange={event => setSettings({ ...settings, historyYears: Number(event.target.value) })}
-              />
-            </label>
-            <label>
-              Lokalny LLM URL
-              <input
-                value={settings.llmBaseUrl}
-                onChange={event => setSettings({ ...settings, llmBaseUrl: event.target.value })}
-              />
-            </label>
-            <label>
-              Model
-              <input
-                value={settings.llmModel}
-                onChange={event => setSettings({ ...settings, llmModel: event.target.value })}
-                placeholder="auto"
-              />
-            </label>
-            <label className="full">
-              Ważni nadawcy, po jednym w linii
-              <textarea
-                value={settings.importantSenders}
-                onChange={event => setSettings({ ...settings, importantSenders: event.target.value })}
-                placeholder="ksiegowa@example.com&#10;biuro rachunkowe&#10;bank"
-              />
-            </label>
-            <button className="button" type="submit">
-              Zapisz ustawienia
-            </button>
-          </form>
-        </section>
-
-        <section className="panel">
-          <div className="section-title">
-            <h2>Konta Gmail</h2>
-            <span>{accounts.length}</span>
-          </div>
-          {accounts.length === 0 ? (
-            <p className="muted">Podłącz konta przez Google OAuth. Możesz dodać 4-5 skrzynek po kolei.</p>
-          ) : (
-            <ul className="plain-list">
-              {accounts.map(account => (
-                <li key={account.id}>
-                  <span>{account.email}</span>
-                  <button className="small-button" onClick={() => void disconnectAccount(account.id)}>
-                    Odłącz
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="panel">
-          <div className="section-title">
-            <h2>Dostawcy</h2>
-            <span>{providers.filter(provider => provider.enabled).length}</span>
-          </div>
-          <ul className="provider-list">
-            {providers.map(provider => (
-              <li key={provider.id}>
-                <strong>{provider.targetDomain}</strong>
-                <span>{provider.name}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
 
       <section className="panel">
         <div className="section-title">
