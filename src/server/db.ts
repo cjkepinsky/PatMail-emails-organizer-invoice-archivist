@@ -158,6 +158,23 @@ function setSetting(key: string, value: string) {
   ).run(key, value);
 }
 
+function mergeDefaultProviderSenderEmails(providerId: string, emails: string[]) {
+  const row = db.prepare("SELECT sender_emails_json FROM providers WHERE id = ?").get(providerId) as
+    | { sender_emails_json: string }
+    | undefined;
+  if (!row) return;
+
+  const current = JSON.parse(row.sender_emails_json) as string[];
+  const merged = [...current];
+  for (const email of emails) {
+    if (!merged.some(item => item.toLowerCase() === email.toLowerCase())) merged.push(email);
+  }
+
+  if (merged.length !== current.length) {
+    db.prepare("UPDATE providers SET sender_emails_json = ? WHERE id = ?").run(JSON.stringify(merged), providerId);
+  }
+}
+
 export function initDefaults() {
   const settings: AppSettings = {
     archiveDir: getSetting("archiveDir") || serverConfig.defaultArchiveDir,
@@ -191,6 +208,7 @@ export function initDefaults() {
       );
     }
   }
+  mergeDefaultProviderSenderEmails("elevenlabs", ["team@elevenlabs.io"]);
 }
 
 export function getAppSettings(): AppSettings {

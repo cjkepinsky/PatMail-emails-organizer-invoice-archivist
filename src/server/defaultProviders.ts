@@ -46,7 +46,7 @@ export const defaultProviders: ProviderRule[] = [
     name: "ElevenLabs Inc",
     targetDomain: "elevenlabs.io",
     senderDomains: ["elevenlabs.io", "elevenlabs.com", "stripe.com"],
-    senderEmails: [],
+    senderEmails: ["team@elevenlabs.io"],
     searchTerms: ["ElevenLabs", "Eleven Labs", "invoice", "receipt", "billing"],
     senderOnly: true,
     enabled: true

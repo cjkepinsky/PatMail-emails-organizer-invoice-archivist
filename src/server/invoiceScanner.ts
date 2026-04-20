@@ -295,14 +295,19 @@ function insertProcessed(input: {
 }
 
 function buildProviderQuery(provider: ProviderRule, afterQuery: string) {
-  const senderTerms = [...provider.senderDomains, ...provider.senderEmails]
+  const senderTerms = provider.senderDomains
     .map(term => term.trim())
     .filter(Boolean)
     .map(term => `from:${sanitizeGmailTerm(term)}`);
+  const exactEmailTerms = provider.senderEmails
+    .map(term => term.trim())
+    .filter(Boolean)
+    .flatMap(term => [`from:${sanitizeGmailTerm(term)}`, `"${sanitizeGmailTerm(term)}"`]);
   const brandTerms = providerBrandTerms(provider).map(term => `"${sanitizeGmailTerm(term)}"`);
+  const replyToCandidateTerms = exactEmailTerms.length > 0 ? brandTerms : [];
   const providerTerms = provider.senderOnly
-    ? senderTerms
-    : [...senderTerms, ...brandTerms];
+    ? [...senderTerms, ...exactEmailTerms, ...replyToCandidateTerms]
+    : [...senderTerms, ...exactEmailTerms, ...brandTerms];
   const providerGroup = providerTerms.join(" OR ");
   const invoiceGroup = invoiceKeywords.join(" OR ");
 
@@ -315,12 +320,13 @@ function buildProviderQuery(provider: ProviderRule, afterQuery: string) {
 
 function messageMatchesProvider(message: Awaited<ReturnType<typeof getParsedMessage>>, provider: ProviderRule) {
   const from = parseFromHeader(message.headers.from || "");
-  const senderMatch = senderMatchesProvider(from.email, provider);
+  const replyTo = parseFromHeader(message.headers["reply-to"] || "");
+  const senderMatch = senderMatchesProvider(from.email, replyTo.email, provider);
   if (senderMatch.direct) return true;
 
   const brandTerms = providerBrandTerms(provider);
   const hasBrand = includesAny(
-    `${from.name} ${from.email} ${message.headers.subject || ""} ${message.snippet} ${message.text}`,
+    `${from.name} ${from.email} ${replyTo.name} ${replyTo.email} ${message.headers.subject || ""} ${message.snippet} ${message.text}`,
     brandTerms
   );
 
@@ -329,19 +335,20 @@ function messageMatchesProvider(message: Awaited<ReturnType<typeof getParsedMess
   return hasBrand;
 }
 
-function senderMatchesProvider(email: string, provider: ProviderRule) {
-  const normalizedEmail = normalizeMatchValue(email);
+function senderMatchesProvider(fromEmail: string, replyToEmail: string, provider: ProviderRule) {
+  const normalizedFromEmail = normalizeMatchValue(fromEmail);
+  const normalizedReplyToEmail = normalizeMatchValue(replyToEmail);
   const emailMatch = provider.senderEmails
     .map(normalizeMatchValue)
     .filter(Boolean)
-    .some(term => normalizedEmail.includes(term));
+    .some(term => normalizedFromEmail.includes(term) || normalizedReplyToEmail.includes(term));
 
   if (emailMatch) return { direct: true, sharedBilling: false };
 
   let direct = false;
   let sharedBilling = false;
   for (const domain of provider.senderDomains.map(normalizeMatchValue).filter(Boolean)) {
-    if (!normalizedEmail.includes(domain)) continue;
+    if (!normalizedFromEmail.includes(domain)) continue;
     if (sharedBillingDomains.has(domain)) sharedBilling = true;
     else direct = true;
   }

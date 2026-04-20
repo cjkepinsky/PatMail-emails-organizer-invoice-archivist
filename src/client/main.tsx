@@ -348,7 +348,7 @@ function App() {
                         />
                       </label>
                       <label>
-                        Konkretne adresy nadawcy
+                        Konkretne adresy w polu From lub Reply-To
                         <textarea
                           value={provider.senderEmails.join("\n")}
                           onChange={event =>
