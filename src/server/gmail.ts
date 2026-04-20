@@ -43,7 +43,7 @@ export function getAuthUrl(state: string) {
     prompt: "consent",
     state,
     scope: [
-      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/userinfo.email"
     ]
   });
@@ -139,6 +139,16 @@ export async function downloadAttachment(
   });
   if (!response.data.data) throw new Error("Załącznik nie zawiera danych");
   return Buffer.from(response.data.data, "base64url");
+}
+
+export async function markMessageRead(gmail: gmail_v1.Gmail, messageId: string) {
+  await gmail.users.messages.modify({
+    userId: "me",
+    id: messageId,
+    requestBody: {
+      removeLabelIds: ["UNREAD"]
+    }
+  });
 }
 
 function collectParts(part: gmail_v1.Schema$MessagePart | undefined, output: ParsedGmailMessage) {

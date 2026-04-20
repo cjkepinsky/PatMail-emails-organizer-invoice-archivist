@@ -486,6 +486,30 @@ export function listImportantItems(): ImportantItem[] {
     .map(mapImportantItem);
 }
 
+export function getImportantItem(id: string): ImportantItem | null {
+  const row = db.prepare("SELECT * FROM important_items WHERE id = ?").get(id);
+  return row ? mapImportantItem(row as Record<string, unknown>) : null;
+}
+
+export function getImportantItemDetail(id: string) {
+  return db
+    .prepare(
+      `SELECT
+        important_items.*,
+        mail_cache.text AS mail_text
+      FROM important_items
+      LEFT JOIN mail_cache
+        ON mail_cache.account_id = important_items.account_id
+       AND mail_cache.message_id = important_items.message_id
+      WHERE important_items.id = ?`
+    )
+    .get(id) as (Record<string, unknown> & { mail_text?: string }) | undefined;
+}
+
+export function deleteImportantItem(id: string) {
+  db.prepare("DELETE FROM important_items WHERE id = ?").run(id);
+}
+
 function mapAccount(row: Record<string, unknown>): GmailAccount {
   return {
     id: String(row.id),

@@ -61,9 +61,12 @@ type Invoice = {
 
 type ImportantItem = {
   id: string;
+  accountId: string;
+  messageId: string;
   fromEmail: string;
   fromName: string;
   subject: string;
+  snippet: string;
   summary: string;
   actionRequired: string;
   category: string;
@@ -72,6 +75,10 @@ type ImportantItem = {
   amount: string | null;
   currency: string | null;
   receivedAt: string;
+};
+
+type ImportantDetail = ImportantItem & {
+  text: string;
 };
 
 type CleanupResult = {
@@ -86,6 +93,9 @@ function App() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [importantItems, setImportantItems] = useState<ImportantItem[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedImportantId, setSelectedImportantId] = useState("");
+  const [selectedImportant, setSelectedImportant] = useState<ImportantDetail | null>(null);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [status, setStatus] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -126,6 +136,46 @@ function App() {
     }
   }, [activeJob]);
 
+  const importantCategories = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of importantItems) counts.set(item.category, (counts.get(item.category) || 0) + 1);
+    return [...counts.entries()].sort((left, right) => right[1] - left[1]);
+  }, [importantItems]);
+
+  const visibleImportantItems = useMemo(() => {
+    if (!selectedCategory) return importantItems;
+    return importantItems.filter(item => item.category === selectedCategory);
+  }, [importantItems, selectedCategory]);
+
+  useEffect(() => {
+    if (selectedCategory && importantCategories.some(([category]) => category === selectedCategory)) return;
+    setSelectedCategory(importantCategories[0]?.[0] || "");
+  }, [importantCategories, selectedCategory]);
+
+  useEffect(() => {
+    if (selectedImportantId && visibleImportantItems.some(item => item.id === selectedImportantId)) return;
+    setSelectedImportantId(visibleImportantItems[0]?.id || "");
+  }, [selectedImportantId, visibleImportantItems]);
+
+  useEffect(() => {
+    if (!selectedImportantId) {
+      setSelectedImportant(null);
+      return;
+    }
+
+    let alive = true;
+    api(`/api/important/${selectedImportantId}`)
+      .then(detail => {
+        if (alive) setSelectedImportant(detail);
+      })
+      .catch(() => {
+        if (alive) setSelectedImportant(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedImportantId]);
+
   async function refreshLists() {
     const [invoiceRows, importantRows] = await Promise.all([
       api("/api/invoices"),
@@ -164,6 +214,19 @@ function App() {
       body: JSON.stringify({ days: 7 })
     });
     setActiveJob(job);
+  }
+
+  async function markSelectedImportantRead() {
+    if (!selectedImportant) return;
+    setStatus("Oznaczam mail jako przeczytany...");
+    const response = await api(`/api/important/${selectedImportant.id}/read`, { method: "POST" });
+    setImportantItems(response.importantItems);
+    setSelectedImportant(null);
+    setStatus(
+      response.gmailMarkedRead
+        ? "Mail oznaczony jako przeczytany i usunięty z listy."
+        : "Mail usunięty z listy. Gmail może wymagać ponownego podłączenia konta z nowym zakresem."
+    );
   }
 
   async function askMailbox(event: React.FormEvent) {
@@ -488,21 +551,66 @@ function App() {
         {importantItems.length === 0 ? (
           <p className="muted">Po pierwszym syncu pojawią się tu faktury, terminy płatności, księgowość i sprawy wymagające reakcji.</p>
         ) : (
-          <div className="feed-list">
-            {importantItems.slice(0, 6).map(item => (
-              <article className="feed-item" key={item.id}>
-                <div>
-                  <strong>{item.fromName || item.fromEmail}</strong>
-                  <p>{item.summary || item.subject}</p>
-                  {item.actionRequired && <small>{item.actionRequired}</small>}
-                </div>
-                <div className="feed-meta">
-                  <span className={`pill ${item.priority}`}>{item.priority}</span>
-                  {item.dueDate && <span>Termin: {item.dueDate}</span>}
-                  {item.amount && <span>{item.amount} {item.currency || ""}</span>}
-                </div>
-              </article>
-            ))}
+          <div className="important-workspace">
+            <div className="important-list-pane">
+              <div className="category-tabs" role="tablist" aria-label="Kategorie ważnych maili">
+                {importantCategories.map(([category, count]) => (
+                  <button
+                    className={category === selectedCategory ? "category-tab active" : "category-tab"}
+                    key={category}
+                    onClick={() => setSelectedCategory(category)}
+                    type="button"
+                  >
+                    <span>{category}</span>
+                    <strong>{count}</strong>
+                  </button>
+                ))}
+              </div>
+              <div className="feed-list">
+                {visibleImportantItems.map(item => (
+                  <button
+                    className={item.id === selectedImportantId ? "feed-item selected" : "feed-item"}
+                    key={item.id}
+                    onClick={() => setSelectedImportantId(item.id)}
+                    type="button"
+                  >
+                    <div>
+                      <strong>{item.fromName || item.fromEmail}</strong>
+                      <p>{item.summary || item.subject}</p>
+                      {item.actionRequired && <small>{item.actionRequired}</small>}
+                    </div>
+                    <div className="feed-meta">
+                      <span className={`pill ${item.priority}`}>{item.priority}</span>
+                      {item.dueDate && <span>Termin: {item.dueDate}</span>}
+                      {item.amount && <span>{item.amount} {item.currency || ""}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <aside className="important-preview">
+              {selectedImportant ? (
+                <>
+                  <div className="preview-header">
+                    <div>
+                      <span className={`pill ${selectedImportant.priority}`}>{selectedImportant.category}</span>
+                      <h3>{selectedImportant.subject}</h3>
+                      <p>{selectedImportant.fromName || selectedImportant.fromEmail} &lt;{selectedImportant.fromEmail}&gt;</p>
+                      <small>{formatDateTime(selectedImportant.receivedAt)}</small>
+                    </div>
+                    <button className="button secondary" onClick={() => void markSelectedImportantRead()}>
+                      Oznacz jako przeczytany
+                    </button>
+                  </div>
+                  {selectedImportant.actionRequired && (
+                    <p className="preview-action">{selectedImportant.actionRequired}</p>
+                  )}
+                  <pre className="mail-body">{selectedImportant.text || selectedImportant.snippet}</pre>
+                </>
+              ) : (
+                <p className="muted">Wybierz mail po lewej, żeby zobaczyć treść.</p>
+              )}
+            </aside>
           </div>
         )}
       </section>
@@ -596,6 +704,18 @@ async function api(path: string, options: RequestInit = {}) {
 function shortPath(filePath: string) {
   const parts = filePath.split("/");
   return parts.slice(-3).join("/");
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("pl-PL", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function lines(value: string) {

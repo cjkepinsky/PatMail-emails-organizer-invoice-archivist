@@ -5,7 +5,11 @@ import { serverConfig } from "./config.js";
 import {
   createJob,
   deleteAccount,
+  deleteImportantItem,
   getAppSettings,
+  getAccount,
+  getImportantItem,
+  getImportantItemDetail,
   getJob,
   initDefaults,
   listAccounts,
@@ -17,7 +21,7 @@ import {
   upsertAccount,
   upsertProvider
 } from "./db.js";
-import { exchangeCode, getAuthUrl } from "./gmail.js";
+import { exchangeCode, getAuthUrl, gmailForAccount, markMessageRead } from "./gmail.js";
 import { runInvoiceBackfill } from "./invoiceScanner.js";
 import { getChatContext, runImportantMailSync } from "./mailCopilot.js";
 import { chatWithMailbox, getClassifierStatus, getLlmStatus } from "./llm.js";
@@ -152,6 +156,56 @@ app.post("/api/invoices/cleanup", (req, res) => {
 
 app.get("/api/important", (_req, res) => {
   res.json(listImportantItems());
+});
+
+app.get("/api/important/:id", (req, res) => {
+  const row = getImportantItemDetail(req.params.id);
+  if (!row) return res.status(404).json({ error: "Nie znaleziono ważnego maila" });
+  const item = {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    messageId: String(row.message_id),
+    threadId: String(row.thread_id),
+    fromEmail: String(row.from_email),
+    fromName: String(row.from_name),
+    subject: String(row.subject),
+    snippet: String(row.snippet),
+    receivedAt: String(row.received_at),
+    priority: String(row.priority),
+    category: String(row.category),
+    summary: String(row.summary),
+    actionRequired: String(row.action_required),
+    dueDate: row.due_date ? String(row.due_date) : null,
+    amount: row.amount ? String(row.amount) : null,
+    currency: row.currency ? String(row.currency) : null,
+    text: row.mail_text ? String(row.mail_text) : ""
+  };
+  res.json(item);
+});
+
+app.post("/api/important/:id/read", async (req, res) => {
+  const item = getImportantItem(req.params.id);
+  if (!item) return res.status(404).json({ error: "Nie znaleziono ważnego maila" });
+
+  let gmailMarkedRead = false;
+  let gmailError: string | null = null;
+  const account = getAccount(item.accountId);
+  if (account) {
+    try {
+      await markMessageRead(gmailForAccount(account), item.messageId);
+      gmailMarkedRead = true;
+    } catch (error) {
+      gmailError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  deleteImportantItem(item.id);
+  res.json({
+    ok: true,
+    gmailMarkedRead,
+    gmailError,
+    importantItems: listImportantItems()
+  });
 });
 
 app.get("/api/llm/status", async (_req, res) => {
