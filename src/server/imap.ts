@@ -1,0 +1,290 @@
+import { Buffer } from "node:buffer";
+import { ImapFlow, type FetchMessageObject, type SearchObject } from "imapflow";
+import { simpleParser, type ParsedMail } from "mailparser";
+import { normalizeHtml, normalizeWhitespace, sanitizeEmailHtml } from "./gmail.js";
+import type { GmailAccount, ImapAccountConfig } from "./types.js";
+import type { GmailAttachmentMeta, ParsedGmailMessage } from "./gmail.js";
+
+type ImapMessageRef = {
+  mailbox: string;
+  uidValidity: string;
+  uid: number;
+};
+
+export function parseImapConfig(account: GmailAccount): ImapAccountConfig {
+  const parsed = JSON.parse(account.imapConfigJson || "{}") as Partial<ImapAccountConfig>;
+  const host = String(parsed.host || "imap.gmail.com").trim();
+  const port = Number(parsed.port || 993);
+  const user = String(parsed.user || account.email).trim();
+  const password = String(parsed.password || "");
+  const mailbox = parsed.mailbox ? String(parsed.mailbox) : undefined;
+
+  if (!host) throw new Error(`Brakuje hosta IMAP dla konta ${account.email}`);
+  if (!user) throw new Error(`Brakuje użytkownika IMAP dla konta ${account.email}`);
+  if (!password) throw new Error(`Brakuje hasła aplikacji IMAP dla konta ${account.email}`);
+
+  return {
+    host,
+    port: Number.isFinite(port) ? port : 993,
+    secure: parsed.secure !== false,
+    user,
+    password,
+    mailbox
+  };
+}
+
+export async function verifyImapConfig(config: ImapAccountConfig) {
+  const client = createClient(config);
+  try {
+    await client.connect();
+    const mailbox = await resolveMailbox(client, config.mailbox);
+    await client.mailboxOpen(mailbox);
+    return { mailbox };
+  } finally {
+    await closeClient(client);
+  }
+}
+
+export async function listImapMessageIds(
+  account: GmailAccount,
+  query: string,
+  onPage?: (count: number) => void
+) {
+  return withMailbox(account, undefined, async (client, mailbox, uidValidity) => {
+    const result = (await searchMessages(client, query)).sort((left, right) => right - left);
+    const ids = result.map(uid => encodeImapMessageId({ mailbox, uidValidity, uid }));
+    onPage?.(ids.length);
+    return ids;
+  });
+}
+
+export async function getImapParsedMessage(account: GmailAccount, messageId: string): Promise<ParsedGmailMessage> {
+  const ref = decodeImapMessageId(messageId);
+  return withMailbox(account, ref.mailbox, async (client, mailbox, uidValidity) => {
+    const fetched = await fetchOne(client, ref.uid);
+    const source = fetched.source || Buffer.alloc(0);
+    const parsed = await simpleParser(source);
+    const id = encodeImapMessageId({ mailbox, uidValidity, uid: fetched.uid || ref.uid });
+    return parsedMailToMessage(parsed, fetched, id);
+  });
+}
+
+export async function downloadImapAttachment(account: GmailAccount, messageId: string, attachmentId: string) {
+  const ref = decodeImapMessageId(messageId);
+  return withMailbox(account, ref.mailbox, async client => {
+    const fetched = await fetchOne(client, ref.uid);
+    const parsed = await simpleParser(fetched.source || Buffer.alloc(0));
+    const attachment = getAttachmentById(parsed, attachmentId);
+    if (!attachment) throw new Error("Nie znaleziono załącznika");
+    return Buffer.from(attachment.content);
+  });
+}
+
+export async function markImapMessageRead(account: GmailAccount, messageId: string) {
+  const ref = decodeImapMessageId(messageId);
+  await withMailbox(account, ref.mailbox, async client => {
+    await client.messageFlagsAdd(String(ref.uid), ["\\Seen"], { uid: true });
+  });
+}
+
+export async function markImapMessageUnread(account: GmailAccount, messageId: string) {
+  const ref = decodeImapMessageId(messageId);
+  await withMailbox(account, ref.mailbox, async client => {
+    await client.messageFlagsRemove(String(ref.uid), ["\\Seen"], { uid: true });
+  });
+}
+
+export async function isImapMessageUnread(account: GmailAccount, messageId: string) {
+  const ref = decodeImapMessageId(messageId);
+  return withMailbox(account, ref.mailbox, async client => {
+    const fetched = await client.fetchOne(String(ref.uid), { uid: true, flags: true }, { uid: true });
+    if (!fetched) return false;
+    return !Boolean(fetched.flags?.has("\\Seen"));
+  });
+}
+
+function createClient(config: ImapAccountConfig) {
+  return new ImapFlow({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: {
+      user: config.user,
+      pass: config.password
+    },
+    logger: false
+  });
+}
+
+async function withMailbox<T>(
+  account: GmailAccount,
+  requestedMailbox: string | undefined,
+  callback: (client: ImapFlow, mailbox: string, uidValidity: string) => Promise<T>
+) {
+  const config = parseImapConfig(account);
+  const client = createClient(config);
+  try {
+    await client.connect();
+    const mailbox = requestedMailbox || await resolveMailbox(client, config.mailbox);
+    const opened = await client.mailboxOpen(mailbox);
+    return await callback(client, mailbox, String(opened.uidValidity));
+  } finally {
+    await closeClient(client);
+  }
+}
+
+async function closeClient(client: ImapFlow) {
+  try {
+    await client.logout();
+  } catch {
+    client.close();
+  }
+}
+
+async function resolveMailbox(client: ImapFlow, preferred?: string) {
+  if (preferred) return preferred;
+  const boxes = await client.list();
+  const allMail = boxes.find(box => box.specialUse === "\\All" || box.flags.has("\\All"));
+  if (allMail) return allMail.path;
+  const archive = boxes.find(box => box.specialUse === "\\Archive" || box.flags.has("\\Archive"));
+  if (archive) return archive.path;
+  const namedAllMail = boxes.find(box => /all mail|cała poczta|cala poczta/i.test(box.path));
+  return namedAllMail?.path || "INBOX";
+}
+
+async function searchMessages(client: ImapFlow, query: string) {
+  try {
+    const gmailResult = await client.search({ gmailraw: query }, { uid: true });
+    return Array.isArray(gmailResult) ? gmailResult : [];
+  } catch {
+    const fallbackResult = await client.search(buildFallbackSearch(query), { uid: true });
+    return Array.isArray(fallbackResult) ? fallbackResult : [];
+  }
+}
+
+function buildFallbackSearch(query: string): SearchObject {
+  const search: SearchObject = { all: true };
+  if (/\bis:unread\b/i.test(query)) search.seen = false;
+
+  const after = query.match(/\bafter:(\d{4})\/(\d{2})\/(\d{2})\b/i);
+  if (after) search.since = `${after[1]}-${after[2]}-${after[3]}`;
+
+  const from = query.match(/\bfrom:([^\s)]+)/i);
+  if (from) search.from = from[1].replace(/^"|"$/g, "");
+
+  return search;
+}
+
+async function fetchOne(client: ImapFlow, uid: number) {
+  const fetched = await client.fetchOne(
+    String(uid),
+    {
+      source: true,
+      uid: true,
+      flags: true,
+      internalDate: true,
+      threadId: true
+    },
+    { uid: true }
+  );
+  if (!fetched) throw new Error("Nie znaleziono wiadomości IMAP");
+  return fetched;
+}
+
+function parsedMailToMessage(parsed: ParsedMail, fetched: FetchMessageObject, id: string): ParsedGmailMessage {
+  const html = typeof parsed.html === "string" ? sanitizeEmailHtml(parsed.html) : "";
+  const text = parsed.text || htmlToText(html);
+  const headers = {
+    from: parsed.from?.text || headerText(parsed, "from"),
+    to: addressText(parsed.to) || headerText(parsed, "to"),
+    cc: addressText(parsed.cc) || headerText(parsed, "cc"),
+    bcc: addressText(parsed.bcc) || headerText(parsed, "bcc"),
+    "reply-to": parsed.replyTo?.text || headerText(parsed, "reply-to"),
+    subject: parsed.subject || headerText(parsed, "subject"),
+    date: parsed.date?.toUTCString() || headerText(parsed, "date")
+  };
+
+  return {
+    id,
+    threadId: fetched.threadId ? String(fetched.threadId) : id,
+    snippet: normalizeWhitespace(text).slice(0, 180),
+    internalDate: imapInternalDate(fetched.internalDate),
+    headers,
+    text: normalizeWhitespace(text),
+    html: normalizeHtml(html),
+    attachments: parsed.attachments.map((attachment, index): GmailAttachmentMeta => ({
+      attachmentId: imapAttachmentId(index),
+      filename: attachment.filename || `attachment-${index + 1}`,
+      mimeType: attachment.contentType || "application/octet-stream",
+      partId: String(index),
+      size: Number(attachment.size || attachment.content.length || 0)
+    }))
+  };
+}
+
+function addressText(value: ParsedMail["to"]) {
+  if (!value) return "";
+  if (Array.isArray(value)) return value.map(item => item.text).filter(Boolean).join(", ");
+  return value.text || "";
+}
+
+function getAttachmentById(parsed: ParsedMail, attachmentId: string) {
+  const index = Number(attachmentId.replace(/^imap-att-/, ""));
+  if (!Number.isInteger(index) || index < 0) return null;
+  return parsed.attachments[index] || null;
+}
+
+function imapAttachmentId(index: number) {
+  return `imap-att-${index}`;
+}
+
+function imapInternalDate(value: FetchMessageObject["internalDate"]) {
+  if (value instanceof Date) return String(value.getTime());
+  const parsed = new Date(String(value || ""));
+  return Number.isNaN(parsed.getTime()) ? String(Date.now()) : String(parsed.getTime());
+}
+
+function headerText(parsed: ParsedMail, key: string) {
+  const value = parsed.headers.get(key.toLowerCase()) as unknown;
+  if (!value) return "";
+  if (value instanceof Date) return value.toUTCString();
+  if (Array.isArray(value)) return value.map(item => String(item)).join(", ");
+  if (typeof value === "object" && "text" in value) return String((value as { text?: unknown }).text || "");
+  return String(value);
+}
+
+function htmlToText(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function encodeImapMessageId(ref: ImapMessageRef) {
+  return `imap:${Buffer.from(JSON.stringify(ref), "utf8").toString("base64url")}`;
+}
+
+function decodeImapMessageId(messageId: string): ImapMessageRef {
+  if (!messageId.startsWith("imap:")) {
+    const uid = Number(messageId);
+    if (Number.isFinite(uid)) return { mailbox: "INBOX", uidValidity: "", uid };
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(messageId.replace(/^imap:/, ""), "base64url").toString("utf8")) as ImapMessageRef;
+    if (!decoded.mailbox || !Number.isFinite(Number(decoded.uid))) throw new Error("Invalid IMAP message id");
+    return {
+      mailbox: String(decoded.mailbox),
+      uidValidity: String(decoded.uidValidity || ""),
+      uid: Number(decoded.uid)
+    };
+  } catch {
+    throw new Error("Nieprawidłowy identyfikator wiadomości IMAP");
+  }
+}

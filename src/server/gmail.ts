@@ -10,6 +10,7 @@ export type ParsedGmailMessage = {
   internalDate: string;
   headers: Record<string, string>;
   text: string;
+  html: string;
   attachments: GmailAttachmentMeta[];
 };
 
@@ -31,7 +32,7 @@ export function createOAuthClient() {
 
 export function assertGoogleConfigured() {
   if (!serverConfig.googleClientId || !serverConfig.googleClientSecret) {
-    throw new Error("Brakuje GOOGLE_CLIENT_ID albo GOOGLE_CLIENT_SECRET w .env");
+    throw new Error("Brakuje GOOGLE_CLIENT_ID albo GOOGLE_CLIENT_SECRET w konfiguracji aplikacji");
   }
 }
 
@@ -119,11 +120,13 @@ export async function getParsedMessage(gmail: gmail_v1.Gmail, id: string): Promi
     internalDate: message.internalDate || "",
     headers,
     text: "",
+    html: "",
     attachments: []
   };
 
   collectParts(message.payload, parsed);
   parsed.text = normalizeWhitespace(parsed.text);
+  parsed.html = normalizeHtml(parsed.html);
   return parsed;
 }
 
@@ -151,6 +154,25 @@ export async function markMessageRead(gmail: gmail_v1.Gmail, messageId: string) 
   });
 }
 
+export async function markMessageUnread(gmail: gmail_v1.Gmail, messageId: string) {
+  await gmail.users.messages.modify({
+    userId: "me",
+    id: messageId,
+    requestBody: {
+      addLabelIds: ["UNREAD"]
+    }
+  });
+}
+
+export async function isMessageUnread(gmail: gmail_v1.Gmail, messageId: string) {
+  const response = await gmail.users.messages.get({
+    userId: "me",
+    id: messageId,
+    format: "minimal"
+  });
+  return Boolean(response.data.labelIds?.includes("UNREAD"));
+}
+
 function collectParts(part: gmail_v1.Schema$MessagePart | undefined, output: ParsedGmailMessage) {
   if (!part) return;
 
@@ -172,6 +194,7 @@ function collectParts(part: gmail_v1.Schema$MessagePart | undefined, output: Par
       output.text += `\n${decoded}`;
     } else if (part.mimeType === "text/html") {
       output.text += `\n${htmlToText(decoded)}`;
+      output.html += `\n${sanitizeEmailHtml(decoded)}`;
     }
   }
 
@@ -191,8 +214,108 @@ function htmlToText(html: string) {
     .replace(/&gt;/g, ">");
 }
 
-function normalizeWhitespace(text: string) {
+export function normalizeWhitespace(text: string) {
   return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function normalizeHtml(html: string) {
+  return html.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export function sanitizeEmailHtml(html: string) {
+  const allowedTags = new Set([
+    "a",
+    "article",
+    "b",
+    "blockquote",
+    "br",
+    "code",
+    "dd",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "i",
+    "li",
+    "ol",
+    "p",
+    "pre",
+    "section",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "u",
+    "ul"
+  ]);
+
+  let sanitized = html
+    .replace(/<!doctype[^>]*>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<\?xml[\s\S]*?\?>/gi, "")
+    .replace(
+      /<(script|style|head|meta|link|title|svg|img|picture|source|video|audio|iframe|object|embed|form|input|button|textarea|select|option|canvas|noscript)\b[\s\S]*?<\/\1>/gi,
+      ""
+    )
+    .replace(
+      /<(img|source|video|audio|iframe|object|embed|input|button|textarea|select|option|canvas|meta|link)\b[^>]*\/?>/gi,
+      ""
+    )
+    .replace(/<\/?(html|body|head)\b[^>]*>/gi, "");
+
+  sanitized = sanitized.replace(/<([a-z0-9:-]+)([^>]*)>/gi, (match, rawTag, rawAttrs) => {
+    const tag = String(rawTag).toLowerCase();
+    if (!allowedTags.has(tag)) return "";
+    if (tag === "br" || tag === "hr") return `<${tag}>`;
+    if (tag === "a") {
+      const hrefMatch = String(rawAttrs).match(/\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+      const href = hrefMatch ? hrefMatch[2] || hrefMatch[3] || hrefMatch[4] || "" : "";
+      const safeHref = isSafeHref(href) ? escapeHtmlAttribute(href) : "";
+      return safeHref
+        ? `<a href="${safeHref}" target="_blank" rel="noreferrer noopener">`
+        : "<a>";
+    }
+    return `<${tag}>`;
+  });
+
+  sanitized = sanitized.replace(/<\/([a-z0-9:-]+)>/gi, (match, rawTag) => {
+    const tag = String(rawTag).toLowerCase();
+    return allowedTags.has(tag) ? `</${tag}>` : "";
+  });
+
+  return sanitized;
+}
+
+function isSafeHref(href: string) {
+  const normalized = href.trim().toLowerCase();
+  return normalized.startsWith("http://") ||
+    normalized.startsWith("https://") ||
+    normalized.startsWith("mailto:") ||
+    normalized.startsWith("tel:") ||
+    normalized.startsWith("#");
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 export function parseFromHeader(value: string) {

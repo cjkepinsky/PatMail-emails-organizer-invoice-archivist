@@ -23,7 +23,7 @@ export type MailClassification = {
 
 export async function getLlmStatus() {
   const settings = getAppSettings();
-  if (!settings.llmBaseUrl) {
+  if (!settings.llmApiKey) {
     return { configured: false, models: [], selectedModel: null };
   }
 
@@ -120,15 +120,15 @@ export async function classifyMailWithLlm(input: {
 
 export async function chatWithMailbox(input: { question: string; context: unknown }) {
   const settings = getAppSettings();
-  if (!settings.llmBaseUrl) {
-    return "Nie skonfigurowano lokalnego modelu LLM.";
+  if (!settings.llmApiKey) {
+    return "Nie skonfigurowano tokenu OpenAI do czatu ze skrzynką.";
   }
 
   const messages = [
     {
       role: "system",
       content:
-        "Jesteś lokalnym asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania."
+        "Jesteś asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania."
     },
     {
       role: "user",
@@ -223,9 +223,9 @@ async function listLoadedModels(
   return models;
 }
 
-function chatEndpoint(settings: { llmBaseUrl: string; llmApiKey: string; llmModel: string }): ModelEndpoint {
+function chatEndpoint(settings: { llmApiKey: string; llmModel: string }): ModelEndpoint {
   return {
-    baseUrl: settings.llmBaseUrl,
+    baseUrl: "https://api.openai.com",
     apiKey: settings.llmApiKey,
     model: settings.llmModel
   };

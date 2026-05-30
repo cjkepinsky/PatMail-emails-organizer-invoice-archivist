@@ -2,14 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { db, getAppSettings, listAccounts, listProviders, updateJob } from "./db.js";
-import {
-  downloadAttachment,
-  getParsedMessage,
-  gmailForAccount,
-  listMessageIds,
-  messageDate,
-  parseFromHeader
-} from "./gmail.js";
+import { messageDate, parseFromHeader, type ParsedGmailMessage } from "./gmail.js";
+import { downloadAccountAttachment, getAccountParsedMessage, listAccountMessageIds } from "./mailSource.js";
 import { renderEmailPdf } from "./emailPdf.js";
 import { extractInvoiceInfo, extractPdfText, invoiceMonth } from "./invoiceParser.js";
 import { sanitizeFilename, sanitizePathSegment, uniqueFilePath } from "./storage.js";
@@ -25,6 +19,7 @@ type ScanProgress = {
   skippedSenderMismatch: number;
   skippedNonInvoices: number;
   errors: number;
+  warning?: string;
 };
 
 const invoiceKeywords = [
@@ -93,47 +88,79 @@ export async function runInvoiceBackfill(
   updateJob(jobId, { status: "running", startedAt, progress });
 
   try {
+    const accountWarnings: string[] = [];
+    let scannedAccounts = 0;
+
     for (const account of accounts) {
-      const gmail = gmailForAccount(account);
-      const candidates: { messageId: string; provider: ProviderRule }[] = [];
-      const seenCandidates = new Set<string>();
+      try {
+        const candidates: { messageId: string; provider: ProviderRule }[] = [];
+        const seenCandidates = new Set<string>();
 
-      for (const provider of providers) {
-        progress.account = account.email;
-        progress.provider = provider.name;
-        progress.message = `Szukam wiadomości dla ${provider.name}`;
-        updateJob(jobId, { progress });
-
-        const query = buildProviderQuery(provider, afterQuery);
-        const ids = await listMessageIds(gmail, query, count => {
-          progress.message = `Znaleziono ${count} wiadomości dla ${provider.name}`;
-          updateJob(jobId, { progress });
-        });
-
-        for (const id of ids) {
-          const key = `${id}:${provider.id}`;
-          if (seenCandidates.has(key)) continue;
-          seenCandidates.add(key);
-          candidates.push({ messageId: id, provider });
-        }
-      }
-
-      for (const { messageId, provider } of candidates) {
-        try {
+        for (const provider of providers) {
           progress.account = account.email;
           progress.provider = provider.name;
-          progress.message = `Przetwarzam ${messageId}`;
+          progress.message = `Szukam wiadomości dla ${provider.name}`;
           updateJob(jobId, { progress });
-          await processMessage(account, messageId, provider, archiveDir, progress);
-        } catch (error) {
-          progress.errors += 1;
-          progress.message = error instanceof Error ? error.message : "Błąd przetwarzania wiadomości";
-          updateJob(jobId, { progress });
+
+          const query = buildProviderQuery(provider, afterQuery);
+          const ids = await listAccountMessageIds(account, query, count => {
+            progress.message = `Znaleziono ${count} wiadomości dla ${provider.name}`;
+            updateJob(jobId, { progress });
+          });
+
+          for (const id of ids) {
+            const key = `${id}:${provider.id}`;
+            if (seenCandidates.has(key)) continue;
+            seenCandidates.add(key);
+            candidates.push({ messageId: id, provider });
+          }
         }
+
+        for (const { messageId, provider } of candidates) {
+          try {
+            progress.account = account.email;
+            progress.provider = provider.name;
+            progress.message = `Przetwarzam ${messageId}`;
+            updateJob(jobId, { progress });
+            await processMessage(account, messageId, provider, archiveDir, progress);
+          } catch (error) {
+            progress.errors += 1;
+            progress.message = error instanceof Error ? error.message : "Błąd przetwarzania wiadomości";
+            updateJob(jobId, { progress });
+          }
+        }
+
+        scannedAccounts += 1;
+      } catch (error) {
+        const warning = describeAccountScanError(account.email, error);
+        accountWarnings.push(warning);
+        progress.warning = accountWarnings.join(" ");
+        progress.message = warning;
+        progress.provider = undefined;
+        updateJob(jobId, { progress });
       }
     }
 
-    progress.message = "Skanowanie zakończone";
+    if (accountWarnings.length && scannedAccounts === 0) {
+      progress.warning = summarizeAccountWarnings(accountWarnings);
+      progress.message = `Nie udało się zeskanować żadnego konta Gmail. ${progress.warning}`;
+      updateJob(jobId, {
+        status: "failed",
+        finishedAt: new Date().toISOString(),
+        error: progress.warning,
+        progress
+      });
+      return;
+    }
+
+    if (accountWarnings.length) {
+      progress.warning = summarizeAccountWarnings(accountWarnings);
+      progress.message = `Skanowanie zakończone. ${progress.warning}`;
+    } else {
+      progress.message = "Skanowanie zakończone";
+      delete progress.warning;
+    }
+
     updateJob(jobId, {
       status: "done",
       finishedAt: new Date().toISOString(),
@@ -156,9 +183,18 @@ async function processMessage(
   archiveDir: string,
   progress: ScanProgress
 ) {
-  const gmail = gmailForAccount(account);
-  const message = await getParsedMessage(gmail, messageId);
-  if (!messageMatchesProvider(message, provider)) {
+  const message = await getAccountParsedMessage(account, messageId);
+  const from = parseFromHeader(message.headers.from || "");
+  const replyTo = parseFromHeader(message.headers["reply-to"] || "");
+  const senderMatch = senderMatchesProvider(from.email, replyTo.email, provider);
+  const hasPdfAttachment = message.attachments.some(
+    attachment =>
+      attachment.filename.toLowerCase().endsWith(".pdf") ||
+      attachment.mimeType.toLowerCase().includes("pdf")
+  );
+  const deferSharedBillingValidation = senderMatch.sharedBilling && hasPdfAttachment;
+
+  if (!messageMatchesProvider(message, provider) && !deferSharedBillingValidation) {
     progress.skippedSenderMismatch += 1;
     return;
   }
@@ -188,7 +224,7 @@ async function processMessage(
       continue;
     }
 
-    const buffer = await downloadAttachment(gmail, messageId, attachment.attachmentId);
+    const buffer = await downloadAccountAttachment(account, messageId, attachment.attachmentId);
     const sha256 = createHash("sha256").update(buffer).digest("hex");
     const duplicateByHash = db
       .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved'")
@@ -250,7 +286,7 @@ async function processEmailBodyInvoice(
   provider: ProviderRule,
   archiveDir: string,
   progress: ScanProgress,
-  message: Awaited<ReturnType<typeof getParsedMessage>>
+  message: ParsedGmailMessage
 ) {
   const syntheticAttachmentId = "email-body-pdf";
   const already = db
@@ -423,7 +459,7 @@ function buildProviderQuery(provider: ProviderRule, afterQuery: string) {
   return queryParts.join(" ");
 }
 
-function messageMatchesProvider(message: Awaited<ReturnType<typeof getParsedMessage>>, provider: ProviderRule) {
+function messageMatchesProvider(message: ParsedGmailMessage, provider: ProviderRule) {
   const from = parseFromHeader(message.headers.from || "");
   const replyTo = parseFromHeader(message.headers["reply-to"] || "");
   const senderMatch = senderMatchesProvider(from.email, replyTo.email, provider);
@@ -475,7 +511,7 @@ function isLikelyInvoiceAttachment(
   return brandTerms.length === 0 || includesAny(text, brandTerms);
 }
 
-function isLikelyEmailInvoice(message: Awaited<ReturnType<typeof getParsedMessage>>, provider: ProviderRule) {
+function isLikelyEmailInvoice(message: ParsedGmailMessage, provider: ProviderRule) {
   const text = `${message.headers.subject || ""} ${message.snippet} ${message.text}`;
   const hasInvoiceCue = includesAny(text, emailBodyInvoiceKeywords);
   if (!hasInvoiceCue) return false;
@@ -508,4 +544,22 @@ function formatGmailDate(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}/${month}/${day}`;
+}
+
+function describeAccountScanError(accountEmail: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/\binvalid_grant\b/i.test(message)) {
+    return `Konto ${accountEmail} wymaga ponownego podłączenia do Google.`;
+  }
+  return `Nie udało się zeskanować konta ${accountEmail}: ${message}`;
+}
+
+function summarizeAccountWarnings(warnings: string[]) {
+  const reauthAccounts = warnings
+    .map(warning => warning.match(/^Konto\s+(.+?)\s+wymaga ponownego podłączenia do Google\.$/i)?.[1] || "")
+    .filter(Boolean);
+  if (reauthAccounts.length === warnings.length && reauthAccounts.length > 0) {
+    return `Ponownie podłącz konta Gmail w Ustawienia > Gmail: ${reauthAccounts.join(", ")}.`;
+  }
+  return warnings.join(" ");
 }

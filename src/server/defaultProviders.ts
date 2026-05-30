@@ -17,10 +17,10 @@ export const defaultProviders: ProviderRule[] = [
     name: "Setapp Limited",
     targetDomain: "setapp.com",
     senderDomains: ["setapp.com", "macpaw.com", "paddle.com"],
-    senderEmails: [],
-    searchTerms: ["Setapp", "Setapp Limited", "invoice", "receipt", "billing"],
+    senderEmails: ["help@paddle.com"],
+    searchTerms: ["Setapp", "Setapp Limited", "MacPaw", "invoice", "receipt", "billing"],
     senderOnly: true,
-    emailBodyPdf: false,
+    emailBodyPdf: true,
     enabled: true
   },
   {

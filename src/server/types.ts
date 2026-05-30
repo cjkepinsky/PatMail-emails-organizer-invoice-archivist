@@ -13,6 +13,9 @@ export type ProviderRule = {
 export type AppSettings = {
   archiveDir: string;
   historyYears: number;
+  themeMode: "dark" | "light" | "system";
+  autoSyncEnabled: boolean;
+  autoSyncMinutes: number;
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
@@ -23,6 +26,53 @@ export type AppSettings = {
   classifierTimeoutMs: number;
   importantSenders: string[];
   importantCategories: string[];
+  senderCategoryRules: Array<{ sender: string; category: string }>;
+  categoryRules: CategoryRule[];
+};
+
+export type CategoryRule = {
+  id: string;
+  category: string;
+  priority: "high" | "medium";
+  actionRequired: string;
+  senderTerms: string[];
+  keywordTerms: string[];
+};
+
+export type UiState = {
+  selectedCategory: string;
+  selectedAccountId: string | null;
+  selectedMessageId: string | null;
+};
+
+export type ChatTurn = {
+  id: string;
+  question: string;
+  answer: string;
+  contextJson: string;
+  createdAt: string;
+};
+
+export type MailOperation = {
+  id: string;
+  type: "mark-read" | "mark-visible-read";
+  label: string;
+  itemCount: number;
+  status: "active" | "undone";
+  payloadJson: string;
+  createdAt: string;
+  undoneAt: string | null;
+  error: string | null;
+};
+
+export type ReadOperationSnapshot = {
+  accountId: string;
+  messageId: string;
+  subject: string;
+  fromEmail: string;
+  fromName: string;
+  wasUnread: boolean;
+  importantItem: Record<string, unknown> | null;
 };
 
 export type GmailAccount = {
@@ -30,8 +80,19 @@ export type GmailAccount = {
   email: string;
   tokensJson: string;
   historyId: string | null;
+  authType: "gmail_oauth" | "imap";
+  imapConfigJson: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ImapAccountConfig = {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+  mailbox?: string;
 };
 
 export type ScanJob = {
@@ -70,6 +131,7 @@ export type ImportantItem = {
   dueDate: string | null;
   amount: string | null;
   currency: string | null;
+  saved: boolean;
   rawJson: string;
   createdAt: string;
 };
