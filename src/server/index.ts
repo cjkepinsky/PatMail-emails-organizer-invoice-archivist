@@ -4,14 +4,18 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { fileURLToPath } from "node:url";
-import { getStoredConfig, serverConfig, updateStoredConfig } from "./config.js";
+import { serverConfig } from "./config.js";
 import {
   createJob,
   createMailOperation,
+  createProfile,
   deleteAccount,
   deleteImportantItem,
+  getActiveProfile,
+  getActiveProfileId,
   getAppSettings,
   getAccount,
+  getGoogleOAuthConfig,
   getImportantItem,
   getImportantItemDetail,
   getJob,
@@ -28,6 +32,7 @@ import {
   listImportantItems,
   listInvoices,
   listMailOperations,
+  listProfiles,
   markMailCachedRead,
   markMailCachedUnread,
   markMailOperationUndone,
@@ -39,7 +44,9 @@ import {
   getMailItemDetail,
   setMailIgnored,
   setMailSaved,
+  setActiveProfile,
   updateAppSettings,
+  updateGoogleOAuthConfig,
   updateUiState,
   upsertAccount,
   upsertImapAccount,
@@ -71,18 +78,29 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.get("/api/bootstrap", (_req, res) => {
+  res.json(bootstrapPayload());
+});
+
+app.get("/api/profiles", (_req, res) => {
   res.json({
-    settings: safeSettings(),
-    uiState: getUiState(),
-    accounts: publicAccounts(),
-    providers: listProviders(),
-    invoices: listInvoices(),
-    importantItems: listImportantItems(),
-    otherUnreadItems: listOtherUnreadMailItems(),
-    savedMailItems: listSavedMailItems(),
-    chatHistory: listChatHistory(),
-    operations: listMailOperations()
+    profiles: listProfiles(),
+    activeProfileId: getActiveProfileId()
   });
+});
+
+app.post("/api/profiles", (req, res) => {
+  const name = String(req.body?.name || "").trim();
+  createProfile(name);
+  res.json(bootstrapPayload());
+});
+
+app.post("/api/profiles/active", (req, res) => {
+  try {
+    setActiveProfile(String(req.body?.id || ""));
+    res.json(bootstrapPayload());
+  } catch (error) {
+    res.status(404).json({ error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 app.get("/api/settings", (_req, res) => {
@@ -107,11 +125,11 @@ app.post("/api/ui-state", (req, res) => {
 app.post("/api/settings", (req, res) => {
   const body = req.body || {};
   const current = getAppSettings();
-  const currentStoredConfig = getStoredConfig();
+  const currentGoogleConfig = getGoogleOAuthConfig();
   const googleClientId = String(body.googleClientId || "").trim();
   const googleClientSecret =
     body.googleClientSecret === "configured"
-      ? currentStoredConfig.googleClientSecret
+      ? currentGoogleConfig.googleClientSecret
       : String(body.googleClientSecret || "").trim();
   const googleRedirectUri = String(body.googleRedirectUri || "").trim();
 
@@ -148,7 +166,7 @@ app.post("/api/settings", (req, res) => {
     senderCategoryRules: parseSenderCategoryRules(String(body.senderCategoryRules || "")),
     categoryRules: Array.isArray(body.categoryRules) ? body.categoryRules.map(parseCategoryRuleInput).filter(Boolean) : undefined
   });
-  const storedConfig = updateStoredConfig({
+  const storedConfig = updateGoogleOAuthConfig({
     googleClientId,
     googleClientSecret,
     googleRedirectUri
@@ -692,9 +710,27 @@ function isMainModule() {
 
 if (isMainModule()) startServer();
 
+function bootstrapPayload() {
+  return {
+    profiles: listProfiles(),
+    activeProfile: getActiveProfile(),
+    activeProfileId: getActiveProfileId(),
+    settings: safeSettings(),
+    uiState: getUiState(),
+    accounts: publicAccounts(),
+    providers: listProviders(),
+    invoices: listInvoices(),
+    importantItems: listImportantItems(),
+    otherUnreadItems: listOtherUnreadMailItems(),
+    savedMailItems: listSavedMailItems(),
+    chatHistory: listChatHistory(),
+    operations: listMailOperations()
+  };
+}
+
 function safeSettings() {
   const settings = getAppSettings();
-  const storedConfig = getStoredConfig();
+  const storedConfig = getGoogleOAuthConfig();
   return {
     ...settings,
     googleClientId: storedConfig.googleClientId,

@@ -1,6 +1,5 @@
 import { google, gmail_v1 } from "googleapis";
-import { serverConfig } from "./config.js";
-import { updateAccountTokens } from "./db.js";
+import { getGoogleOAuthConfig, updateAccountTokens } from "./db.js";
 import type { GmailAccount } from "./types.js";
 
 export type ParsedGmailMessage = {
@@ -23,15 +22,17 @@ export type GmailAttachmentMeta = {
 };
 
 export function createOAuthClient() {
+  const config = getGoogleOAuthConfig();
   return new google.auth.OAuth2(
-    serverConfig.googleClientId,
-    serverConfig.googleClientSecret,
-    serverConfig.googleRedirectUri
+    config.googleClientId,
+    config.googleClientSecret,
+    config.googleRedirectUri
   );
 }
 
 export function assertGoogleConfigured() {
-  if (!serverConfig.googleClientId || !serverConfig.googleClientSecret) {
+  const config = getGoogleOAuthConfig();
+  if (!config.googleClientId || !config.googleClientSecret) {
     throw new Error("Brakuje GOOGLE_CLIENT_ID albo GOOGLE_CLIENT_SECRET w konfiguracji aplikacji");
   }
 }

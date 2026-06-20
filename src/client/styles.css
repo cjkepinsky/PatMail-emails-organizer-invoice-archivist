@@ -123,6 +123,61 @@ textarea {
   padding: 24px 0 48px;
 }
 
+.app-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.app-content {
+  min-width: 0;
+}
+
+.profile-sidebar {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface);
+}
+
+.profile-list {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-pill {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.profile-pill.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.profile-pill span {
+  font-weight: 800;
+}
+
+.profile-create {
+  display: grid;
+  gap: 10px;
+}
+
 .toast-stack {
   position: fixed;
   top: 16px;
@@ -887,6 +942,59 @@ textarea {
   font-size: 0.88rem;
 }
 
+.single-editor-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.editor-select {
+  display: grid;
+  flex: 1 1 320px;
+  gap: 6px;
+  color: var(--label);
+  font-weight: 700;
+}
+
+.editor-status {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.editor-status.active {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-faint);
+}
+
+.single-editor-card,
+.provider-editor-card {
+  margin-top: 14px;
+}
+
+.provider-editor-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface);
+}
+
+.provider-editor-card .provider-header span {
+  color: var(--muted);
+  text-align: left;
+}
+
+.provider-editor-card .modal-actions {
+  margin-top: 14px;
+}
+
 .provider-switches {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -1033,6 +1141,18 @@ th {
     width: min(100% - 20px, 1440px);
   }
 
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-sidebar {
+    position: static;
+  }
+
+  .profile-list {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
   .topbar,
   .job-strip,
   .section-title,
@@ -1062,7 +1182,8 @@ th {
   .feed-links,
   .preview-actions,
   .pagination,
-  .pagination-actions {
+  .pagination-actions,
+  .single-editor-toolbar {
     align-items: flex-start;
     justify-content: flex-start;
   }
@@ -1079,6 +1200,10 @@ th {
   .provider-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .editor-select {
+    width: 100%;
   }
 
   .full {

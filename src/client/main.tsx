@@ -44,6 +44,13 @@ type Account = {
   updatedAt: string;
 };
 
+type Profile = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type Provider = {
   id: string;
   name: string;
@@ -146,6 +153,10 @@ type UiState = {
 function App() {
   const [settingsTab, setSettingsTab] = useState<"general" | "gmail" | "rules" | "invoices" | "other">("general");
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState("");
+  const [newProfileName, setNewProfileName] = useState("");
+  const [profileBusy, setProfileBusy] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -164,6 +175,8 @@ function App() {
   const [status, setStatus] = useState("");
   const [toast, setToast] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedRuleId, setSelectedRuleId] = useState("");
+  const [selectedProviderId, setSelectedProviderId] = useState("");
   const [activeView, setActiveView] = useState<"mail" | "operations">("mail");
   const [invoicesExpanded, setInvoicesExpanded] = useState(false);
   const [imapForm, setImapForm] = useState({
@@ -185,8 +198,28 @@ function App() {
 
   async function load() {
     const data = await api("/api/bootstrap");
+    applyBootstrap(data);
+  }
+
+  function applyBootstrap(data: {
+    profiles?: Profile[];
+    activeProfile?: Profile;
+    activeProfileId?: string;
+    settings: Settings;
+    accounts: Account[];
+    providers: Provider[];
+    invoices: Invoice[];
+    chatHistory?: ChatTurn[];
+    operations?: MailOperation[];
+    uiState?: UiState;
+    importantItems: ImportantItem[];
+    otherUnreadItems: ImportantItem[];
+    savedMailItems: ImportantItem[];
+  }) {
     setMailFeedReady(false);
     setUiStateReady(false);
+    setProfiles(data.profiles || []);
+    setActiveProfileId(data.activeProfileId || "");
     setSettings(data.settings);
     setAccounts(data.accounts);
     setProviders(data.providers);
@@ -201,6 +234,27 @@ function App() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    const rules = settings?.categoryRules || [];
+    if (rules.length === 0) {
+      if (selectedRuleId) setSelectedRuleId("");
+      return;
+    }
+    if (!rules.some(rule => rule.id === selectedRuleId)) {
+      setSelectedRuleId(rules[0].id);
+    }
+  }, [settings?.categoryRules, selectedRuleId]);
+
+  useEffect(() => {
+    if (providers.length === 0) {
+      if (selectedProviderId) setSelectedProviderId("");
+      return;
+    }
+    if (!providers.some(provider => provider.id === selectedProviderId)) {
+      setSelectedProviderId(providers[0].id);
+    }
+  }, [providers, selectedProviderId]);
 
   useEffect(() => {
     if (!activeJob || activeJob.status === "done" || activeJob.status === "failed") return;
@@ -380,6 +434,11 @@ function App() {
       ]
     : chatHistory;
 
+  const categoryRules = settings?.categoryRules || [];
+  const selectedRule = categoryRules.find(rule => rule.id === selectedRuleId) || categoryRules[0] || null;
+  const selectedProvider = providers.find(provider => provider.id === selectedProviderId) || providers[0] || null;
+  const activeProfileName = profiles.find(profile => profile.id === activeProfileId)?.name || "aktywny profil";
+
   async function refreshLists() {
     const [invoiceRows, mailFeed] = await Promise.all([
       api("/api/invoices"),
@@ -413,6 +472,48 @@ function App() {
     } else {
       setSelectedImportantId("");
       setShouldRevealSelectedMail(false);
+    }
+  }
+
+  async function switchProfile(profileId: string) {
+    if (!profileId || profileId === activeProfileId || profileBusy) return;
+    setProfileBusy(true);
+    setActiveJob(null);
+    setStatus("Przełączam profil...");
+    try {
+      const data = await api("/api/profiles/active", {
+        method: "POST",
+        body: JSON.stringify({ id: profileId })
+      });
+      applyBootstrap(data);
+      setStatus("");
+      setToast(`Aktywny profil: ${data.activeProfile?.name || "wybrany profil"}.`);
+    } catch (error) {
+      setStatus(apiErrorMessage(error));
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function createNewProfile(event: React.FormEvent) {
+    event.preventDefault();
+    if (profileBusy) return;
+    setProfileBusy(true);
+    setActiveJob(null);
+    setStatus("Tworzę profil...");
+    try {
+      const data = await api("/api/profiles", {
+        method: "POST",
+        body: JSON.stringify({ name: newProfileName })
+      });
+      applyBootstrap(data);
+      setNewProfileName("");
+      setStatus("");
+      setToast(`Utworzono profil: ${data.activeProfile?.name || "Nowy profil"}.`);
+    } catch (error) {
+      setStatus(apiErrorMessage(error));
+    } finally {
+      setProfileBusy(false);
     }
   }
 
@@ -610,12 +711,22 @@ function App() {
   }
 
   async function saveProvider(provider: Provider) {
+    const normalizedProvider = {
+      ...provider,
+      name: provider.name.trim(),
+      targetDomain: provider.targetDomain.trim().toLowerCase()
+    };
+    if (!normalizedProvider.name || !normalizedProvider.targetDomain) {
+      setToast("Podaj nazwę dostawcy i domenę folderu przed zapisem.");
+      return;
+    }
     const saved = await api("/api/providers", {
       method: "POST",
-      body: JSON.stringify(provider)
+      body: JSON.stringify(normalizedProvider)
     });
     setProviders(saved);
-    setToast(`Zapisano ustawienia dostawcy: ${provider.name}.`);
+    setSelectedProviderId(normalizedProvider.id);
+    setToast(`Zapisano ustawienia dostawcy: ${normalizedProvider.name}.`);
   }
 
   async function cleanupInvoiceIndex() {
@@ -636,6 +747,22 @@ function App() {
     );
   }
 
+  function addProvider() {
+    const provider: Provider = {
+      id: `provider-${Date.now()}`,
+      name: "Nowy dostawca",
+      targetDomain: "",
+      senderDomains: [],
+      senderEmails: [],
+      searchTerms: [],
+      senderOnly: true,
+      emailBodyPdf: false,
+      enabled: true
+    };
+    setProviders(current => [...current, provider]);
+    setSelectedProviderId(provider.id);
+  }
+
   function updateCategoryRule(ruleId: string, patch: Partial<CategoryRule>) {
     if (!settings) return;
     setSettings({
@@ -646,28 +773,31 @@ function App() {
 
   function addCategoryRule() {
     if (!settings) return;
+    const rule: CategoryRule = {
+      id: `rule-${Date.now()}`,
+      category: "",
+      priority: "medium",
+      actionRequired: "",
+      senderTerms: [],
+      keywordTerms: []
+    };
     setSettings({
       ...settings,
-      categoryRules: [
-        ...settings.categoryRules,
-        {
-          id: `rule-${Date.now()}`,
-          category: "",
-          priority: "medium",
-          actionRequired: "",
-          senderTerms: [],
-          keywordTerms: []
-        }
-      ]
+      categoryRules: [...settings.categoryRules, rule]
     });
+    setSelectedRuleId(rule.id);
   }
 
   function removeCategoryRule(ruleId: string) {
     if (!settings) return;
+    const nextRules = settings.categoryRules.filter(rule => rule.id !== ruleId);
     setSettings({
       ...settings,
-      categoryRules: settings.categoryRules.filter(rule => rule.id !== ruleId)
+      categoryRules: nextRules
     });
+    if (selectedRuleId === ruleId) {
+      setSelectedRuleId(nextRules[0]?.id || "");
+    }
   }
 
   if (!settings) {
@@ -681,6 +811,45 @@ function App() {
           <div className="toast toast-success">{toast}</div>
         </div>
       )}
+      <div className="app-layout">
+        <aside className="profile-sidebar" aria-label="Profile">
+          <div>
+            <p className="eyebrow">Profile</p>
+            <h2>Przestrzenie</h2>
+          </div>
+          <div className="profile-list">
+            {profiles.map(profile => (
+              <button
+                className={profile.id === activeProfileId ? "profile-pill active" : "profile-pill"}
+                disabled={profileBusy}
+                key={profile.id}
+                onClick={() => void switchProfile(profile.id)}
+                type="button"
+              >
+                <span>{profile.name}</span>
+                {profile.id === activeProfileId && <small>aktywny</small>}
+              </button>
+            ))}
+          </div>
+          <form className="profile-create" onSubmit={createNewProfile}>
+            <label>
+              Nowy profil
+              <input
+                disabled={profileBusy}
+                onChange={event => setNewProfileName(event.target.value)}
+                placeholder="Firmowy"
+                value={newProfileName}
+              />
+            </label>
+            <button className="small-button" disabled={profileBusy} type="submit">
+              {profileBusy ? "Chwila..." : "Utwórz"}
+            </button>
+          </form>
+          <p className="muted">
+            Profil obejmuje ustawienia, reguły, konta Gmail, dostawców faktur, indeks faktur i lokalny stan poczty.
+          </p>
+        </aside>
+        <div className="app-content">
       <section className="topbar">
         <div>
           <p className="eyebrow">MailBot</p>
@@ -725,6 +894,7 @@ function App() {
               <div>
                 <p className="eyebrow">Konfiguracja</p>
                 <h2 id="settings-title">Ustawienia</h2>
+                <p className="muted">Aktywny profil: {activeProfileName}</p>
               </div>
 	              <button className="small-button" onClick={() => setSettingsOpen(false)}>
 	                Zamknij
@@ -1050,66 +1220,81 @@ function App() {
 		                <p className="muted">
 		                  Reguły z tej zakładki są sprawdzane po ręcznych przypisaniach nadawców, ale przed fallbackami w kodzie i przed modelem. To jest miejsce, w którym możesz sam dostroić klasyfikację bez grzebania w kodzie.
 		                </p>
-		                <div className="rules-list">
-		                  {settings.categoryRules.map(rule => (
-		                    <section className="rule-card" key={rule.id}>
-		                      <div className="rule-card-header">
-		                        <strong>{rule.category || "Nowa reguła"}</strong>
-		                        <button className="small-button" onClick={() => removeCategoryRule(rule.id)} type="button">
-		                          Usuń
-		                        </button>
-		                      </div>
-		                      <div className="provider-fields">
-		                        <label>
-		                          Kategoria
-		                          <input
-		                            value={rule.category}
-		                            onChange={event => updateCategoryRule(rule.id, { category: event.target.value })}
-		                            placeholder="zamówienia"
-		                          />
-		                        </label>
-		                        <label>
-		                          Priorytet
-		                          <select
-		                            value={rule.priority}
-		                            onChange={event => updateCategoryRule(rule.id, { priority: event.target.value as CategoryRule["priority"] })}
-		                          >
-		                            <option value="high">high</option>
-		                            <option value="medium">medium</option>
-		                          </select>
-		                        </label>
-		                        <label className="full">
-		                          Co ma zrobić użytkownik
-		                          <input
-		                            value={rule.actionRequired}
-		                            onChange={event => updateCategoryRule(rule.id, { actionRequired: event.target.value })}
-		                            placeholder="Sprawdź status zamówienia."
-		                          />
-		                        </label>
-		                        <label>
-		                          Nadawcy lub domeny
-		                          <textarea
-		                            value={rule.senderTerms.join("\n")}
-		                            onChange={event => updateCategoryRule(rule.id, { senderTerms: lines(event.target.value) })}
-		                            placeholder="powiadomienia@allegromail.pl&#10;allegro.pl"
-		                          />
-		                        </label>
-		                        <label>
-		                          Frazy w temacie lub treści
-		                          <textarea
-		                            value={rule.keywordTerms.join("\n")}
-		                            onChange={event => updateCategoryRule(rule.id, { keywordTerms: lines(event.target.value) })}
-		                            placeholder="status zamówienia&#10;twoje zamówienie"
-		                          />
-		                        </label>
-		                      </div>
-		                    </section>
-		                  ))}
-		                </div>
-		                <div className="modal-actions">
+		                <div className="single-editor-toolbar">
+		                  <label className="editor-select">
+		                    Wybierz regułę
+		                    <select
+		                      value={selectedRule?.id || ""}
+		                      onChange={event => setSelectedRuleId(event.target.value)}
+		                    >
+		                      {categoryRules.map(rule => (
+		                        <option key={rule.id} value={rule.id}>
+		                          {rule.category || "Nowa reguła"} · {rule.priority}
+		                        </option>
+		                      ))}
+		                    </select>
+		                  </label>
 		                  <button className="button secondary" onClick={addCategoryRule} type="button">
 		                    Dodaj regułę
 		                  </button>
+		                </div>
+		                {selectedRule ? (
+		                  <section className="rule-card single-editor-card">
+		                    <div className="rule-card-header">
+		                      <strong>{selectedRule.category || "Nowa reguła"}</strong>
+		                      <button className="small-button" onClick={() => removeCategoryRule(selectedRule.id)} type="button">
+		                        Usuń
+		                      </button>
+		                    </div>
+		                    <div className="provider-fields">
+		                      <label>
+		                        Kategoria
+		                        <input
+		                          value={selectedRule.category}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { category: event.target.value })}
+		                          placeholder="zamówienia"
+		                        />
+		                      </label>
+		                      <label>
+		                        Priorytet
+		                        <select
+		                          value={selectedRule.priority}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { priority: event.target.value as CategoryRule["priority"] })}
+		                        >
+		                          <option value="high">high</option>
+		                          <option value="medium">medium</option>
+		                        </select>
+		                      </label>
+		                      <label className="full">
+		                        Co ma zrobić użytkownik
+		                        <input
+		                          value={selectedRule.actionRequired}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { actionRequired: event.target.value })}
+		                          placeholder="Sprawdź status zamówienia."
+		                        />
+		                      </label>
+		                      <label>
+		                        Nadawcy lub domeny
+		                        <textarea
+		                          value={selectedRule.senderTerms.join("\n")}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { senderTerms: lines(event.target.value) })}
+		                          placeholder="powiadomienia@allegromail.pl&#10;allegro.pl"
+		                        />
+		                      </label>
+		                      <label>
+		                        Frazy w temacie lub treści
+		                        <textarea
+		                          value={selectedRule.keywordTerms.join("\n")}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { keywordTerms: lines(event.target.value) })}
+		                          placeholder="status zamówienia&#10;twoje zamówienie"
+		                        />
+		                      </label>
+		                    </div>
+		                  </section>
+		                ) : (
+		                  <p className="muted">Nie ma jeszcze żadnych reguł. Dodaj pierwszą regułę i zapisz ustawienia.</p>
+		                )}
+		                <div className="modal-actions">
 		                  <button className="button" onClick={saveSettings} type="button">
 		                    Zapisz reguły
 		                  </button>
@@ -1123,83 +1308,124 @@ function App() {
 		                  <h2>Faktury</h2>
 		                  <span>{providers.filter(provider => provider.enabled).length}</span>
 		                </div>
-	                <ul className="provider-list">
-	                  {providers.map(provider => (
-	                    <li key={provider.id}>
-	                      <div className="provider-header">
-	                        <div>
-	                          <strong>{provider.targetDomain}</strong>
-	                          <span>{provider.name}</span>
-	                        </div>
-	                        <div className="provider-switches">
-	                          <label>
-	                            <input
-	                              type="checkbox"
-	                              checked={provider.enabled}
-	                              onChange={event => updateProvider(provider.id, { enabled: event.target.checked })}
-	                            />
-	                            Aktywny
-	                          </label>
-	                          <label>
-	                            <input
-	                              type="checkbox"
-	                              checked={provider.senderOnly}
-	                              onChange={event => updateProvider(provider.id, { senderOnly: event.target.checked })}
-	                            />
-	                            Szukaj tylko po nadawcy
-	                          </label>
-	                          <label>
-	                            <input
-	                              type="checkbox"
-	                              checked={provider.emailBodyPdf}
-	                              onChange={event => updateProvider(provider.id, { emailBodyPdf: event.target.checked })}
-	                            />
-	                            Mail jako PDF
-	                          </label>
-	                        </div>
-	                      </div>
-	                      <p className="provider-help">
-	                        {provider.emailBodyPdf
-	                          ? "Dla tego dostawcy aplikacja może zapisać treść maila jako PDF, gdy faktura nie ma załącznika."
-	                          : provider.senderOnly
-	                          ? "Frazy marki są wtedy dodatkowym filtrem dla PDF-a, ale nie wyszukują maili samodzielnie."
-	                          : "Frazy marki mogą znaleźć maila także wtedy, gdy nadawcą jest Stripe, Paddle albo inny pośrednik."}
-	                      </p>
-	                      <div className="provider-fields">
-	                        <label>
-	                          Fragmenty adresu nadawcy, pole From
-	                          <textarea
-	                            value={provider.senderDomains.join("\n")}
-	                            onChange={event =>
-	                              updateProvider(provider.id, { senderDomains: lines(event.target.value) })
-	                            }
-	                          />
-	                        </label>
-	                        <label>
-	                          Konkretne adresy w polu From lub Reply-To
-	                          <textarea
-	                            value={provider.senderEmails.join("\n")}
-	                            onChange={event =>
-	                              updateProvider(provider.id, { senderEmails: lines(event.target.value) })
-	                            }
-	                          />
-	                        </label>
-	                        <label className="full">
-	                          Frazy marki w temacie, treści maila albo PDF-ie
-	                          <textarea
-	                            value={provider.searchTerms.join("\n")}
-	                            onChange={event =>
-	                              updateProvider(provider.id, { searchTerms: lines(event.target.value) })
-	                            }
-	                          />
-	                        </label>
-	                      </div>
-	                      <button className="small-button" onClick={() => void saveProvider(provider)} type="button">
-	                        Zapisz dostawcę
-	                      </button>
-	                    </li>
-	                  ))}
-	                </ul>
+		                <div className="single-editor-toolbar">
+		                  <label className="editor-select">
+		                    Wybierz dostawcę faktur
+		                    <select
+		                      value={selectedProvider?.id || ""}
+		                      onChange={event => setSelectedProviderId(event.target.value)}
+		                    >
+		                      {providers.map(provider => (
+		                        <option key={provider.id} value={provider.id}>
+		                          {provider.targetDomain || "bez domeny"} · {provider.name || "Nowy dostawca"}
+		                        </option>
+		                      ))}
+		                    </select>
+		                  </label>
+		                  <button className="button secondary" onClick={addProvider} type="button">
+		                    Dodaj dostawcę
+		                  </button>
+		                  {selectedProvider && (
+		                    <span className={selectedProvider.enabled ? "editor-status active" : "editor-status"}>
+		                      {selectedProvider.enabled ? "aktywny" : "nieaktywny"}
+		                    </span>
+		                  )}
+		                </div>
+		                {selectedProvider ? (
+		                  <section className="provider-editor-card">
+		                    <div className="provider-header">
+		                      <div>
+		                        <strong>{selectedProvider.targetDomain || "bez domeny"}</strong>
+		                        <span>{selectedProvider.name || "Nowy dostawca"}</span>
+		                      </div>
+		                      <div className="provider-switches">
+		                        <label>
+		                          <input
+		                            type="checkbox"
+		                            checked={selectedProvider.enabled}
+		                            onChange={event => updateProvider(selectedProvider.id, { enabled: event.target.checked })}
+		                          />
+		                          Aktywny
+		                        </label>
+		                        <label>
+		                          <input
+		                            type="checkbox"
+		                            checked={selectedProvider.senderOnly}
+		                            onChange={event => updateProvider(selectedProvider.id, { senderOnly: event.target.checked })}
+		                          />
+		                          Szukaj tylko po nadawcy
+		                        </label>
+		                        <label>
+		                          <input
+		                            type="checkbox"
+		                            checked={selectedProvider.emailBodyPdf}
+		                            onChange={event => updateProvider(selectedProvider.id, { emailBodyPdf: event.target.checked })}
+		                          />
+		                          Mail jako PDF
+		                        </label>
+		                      </div>
+		                    </div>
+		                    <p className="provider-help">
+		                      {selectedProvider.emailBodyPdf
+		                        ? "Dla tego dostawcy aplikacja może zapisać treść maila jako PDF, gdy faktura nie ma załącznika."
+		                        : selectedProvider.senderOnly
+		                        ? "Frazy marki są wtedy dodatkowym filtrem dla PDF-a, ale nie wyszukują maili samodzielnie."
+		                        : "Frazy marki mogą znaleźć maila także wtedy, gdy nadawcą jest Stripe, Paddle albo inny pośrednik."}
+		                    </p>
+		                    <div className="provider-fields">
+		                      <label>
+		                        Nazwa dostawcy
+		                        <input
+		                          value={selectedProvider.name}
+		                          onChange={event => updateProvider(selectedProvider.id, { name: event.target.value })}
+		                          placeholder="Suno AI"
+		                        />
+		                      </label>
+		                      <label>
+		                        Domena folderu
+		                        <input
+		                          value={selectedProvider.targetDomain}
+		                          onChange={event => updateProvider(selectedProvider.id, { targetDomain: event.target.value })}
+		                          placeholder="suno.com"
+		                        />
+		                      </label>
+		                      <label>
+		                        Fragmenty adresu nadawcy, pole From
+		                        <textarea
+		                          value={selectedProvider.senderDomains.join("\n")}
+		                          onChange={event =>
+		                            updateProvider(selectedProvider.id, { senderDomains: lines(event.target.value) })
+		                          }
+		                        />
+		                      </label>
+		                      <label>
+		                        Konkretne adresy w polu From lub Reply-To
+		                        <textarea
+		                          value={selectedProvider.senderEmails.join("\n")}
+		                          onChange={event =>
+		                            updateProvider(selectedProvider.id, { senderEmails: lines(event.target.value) })
+		                          }
+		                        />
+		                      </label>
+		                      <label className="full">
+		                        Frazy marki w temacie, treści maila albo PDF-ie
+		                        <textarea
+		                          value={selectedProvider.searchTerms.join("\n")}
+		                          onChange={event =>
+		                            updateProvider(selectedProvider.id, { searchTerms: lines(event.target.value) })
+		                          }
+		                        />
+		                      </label>
+		                    </div>
+		                    <div className="modal-actions">
+		                      <button className="small-button" onClick={() => void saveProvider(selectedProvider)} type="button">
+		                        Zapisz dostawcę
+		                      </button>
+		                    </div>
+		                  </section>
+		                ) : (
+		                  <p className="muted">Nie ma jeszcze żadnych dostawców faktur w tym profilu.</p>
+		                )}
 		              </div>
 		            )}
 		            {settingsTab === "other" && (
@@ -1554,6 +1780,8 @@ function App() {
       </section>
         </>
       )}
+        </div>
+      </div>
     </main>
   );
 }

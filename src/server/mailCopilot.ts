@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { db, getAppSettings, isMailIgnored, listAccounts, markMailCachedUnread, updateJob } from "./db.js";
+import { db, getActiveProfileId, getAppSettings, isMailIgnored, listAccounts, markMailCachedUnread, updateJob } from "./db.js";
 import { classifyMailWithLlm, type MailClassification } from "./llm.js";
 import { messageDate, parseFromHeader } from "./gmail.js";
 import { getAccountParsedMessage, isAccountMessageUnread, listAccountMessageIds } from "./mailSource.js";
@@ -14,6 +14,7 @@ type Progress = {
 
 export async function runImportantMailSync(jobId: string, options: { days?: number }) {
   const startedAt = new Date().toISOString();
+  const profileId = getActiveProfileId();
   const days = Math.max(1, Math.min(30, Number(options.days || 7)));
   const settings = getAppSettings();
   const after = new Date();
@@ -41,11 +42,13 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
             `SELECT message_id
              FROM (
                SELECT message_id FROM important_items WHERE account_id = ?
+               AND profile_id = ?
                UNION
                SELECT message_id FROM mail_cache WHERE account_id = ? AND is_unread = 1
+               AND profile_id = ?
              )`
           )
-          .all(account.id, account.id) as { message_id: string }[];
+          .all(account.id, profileId, account.id, profileId) as { message_id: string }[];
 
         for (const row of tracked) {
           try {
@@ -54,13 +57,15 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
               markMailCachedUnread(account.id, row.message_id);
               continue;
             }
-            db.prepare("UPDATE mail_cache SET is_unread = 0 WHERE account_id = ? AND message_id = ?").run(
+            db.prepare("UPDATE mail_cache SET is_unread = 0 WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
               account.id,
-              row.message_id
+              row.message_id,
+              profileId
             );
-            db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ?").run(
+            db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
               account.id,
-              row.message_id
+              row.message_id,
+              profileId
             );
           } catch {
             // Ignore transient Gmail lookup failures for individual messages and continue with the sync.
@@ -83,8 +88,8 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
             continue;
           }
           const exists = db
-            .prepare("SELECT id FROM important_items WHERE account_id = ? AND message_id = ?")
-            .get(account.id, id);
+            .prepare("SELECT id FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?")
+            .get(account.id, id, profileId);
           if (exists) continue;
 
           const message = await getAccountParsedMessage(account, id);
@@ -93,6 +98,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
           const receivedAt = messageDate(message).toISOString();
           const text = message.text || message.snippet || "";
           cacheMail({
+            profileId,
             accountId: account.id,
             messageId: id,
             threadId: message.threadId,
@@ -147,13 +153,14 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
           if (classification.priority === "high" || classification.priority === "medium") {
             db.prepare(`
               INSERT OR IGNORE INTO important_items(
-                id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
+                id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
                 received_at, priority, category, summary, action_required, due_date, amount, currency,
                 raw_json, created_at
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `).run(
               randomUUID(),
+              profileId,
               account.id,
               id,
               message.threadId,
@@ -219,16 +226,17 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
 
 export function getChatContext(question: string) {
   const like = `%${question.replace(/[%_]/g, " ").slice(0, 80)}%`;
+  const profileId = getActiveProfileId();
   const recentImportant = db
     .prepare(
-      "SELECT from_email, from_name, subject, received_at, priority, category, summary, action_required, due_date, amount, currency FROM important_items ORDER BY received_at DESC LIMIT 12"
+      "SELECT from_email, from_name, subject, received_at, priority, category, summary, action_required, due_date, amount, currency FROM important_items WHERE profile_id = ? ORDER BY received_at DESC LIMIT 12"
     )
-    .all();
+    .all(profileId);
   const textMatches = db
     .prepare(
-      "SELECT from_email, from_name, subject, received_at, substr(text, 1, 900) AS text FROM mail_cache WHERE subject LIKE ? OR from_email LIKE ? OR text LIKE ? ORDER BY received_at DESC LIMIT 4"
+      "SELECT from_email, from_name, subject, received_at, substr(text, 1, 900) AS text FROM mail_cache WHERE profile_id = ? AND (subject LIKE ? OR from_email LIKE ? OR text LIKE ?) ORDER BY received_at DESC LIMIT 4"
     )
-    .all(like, like, like);
+    .all(profileId, like, like, like);
   return {
     recentImportant,
     focusedMatches: textMatches,
@@ -238,6 +246,7 @@ export function getChatContext(question: string) {
 }
 
 function cacheMail(input: {
+  profileId: string;
   accountId: string;
   messageId: string;
   threadId: string;
@@ -252,11 +261,12 @@ function cacheMail(input: {
 }) {
   db.prepare(`
     INSERT INTO mail_cache(
-      id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
+      id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
       received_at, text, html, is_unread, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(account_id, message_id) DO UPDATE SET
+      profile_id = excluded.profile_id,
       subject = excluded.subject,
       snippet = excluded.snippet,
       text = excluded.text,
@@ -264,6 +274,7 @@ function cacheMail(input: {
       is_unread = excluded.is_unread
   `).run(
     randomUUID(),
+    input.profileId,
     input.accountId,
     input.messageId,
     input.threadId,

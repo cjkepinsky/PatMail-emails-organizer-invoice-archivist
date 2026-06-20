@@ -12,6 +12,7 @@ import type {
   ImapAccountConfig,
   ImportantItem,
   MailOperation,
+  Profile,
   ProviderRule,
   ReadOperationSnapshot,
   ScanJob,
@@ -22,6 +23,7 @@ fs.mkdirSync(serverConfig.dataDir, { recursive: true });
 
 const dbPath = path.join(serverConfig.dataDir, "app.sqlite");
 export const db = new DatabaseSync(dbPath);
+const DEFAULT_PROFILE_ID = "default";
 
 export const defaultImportantCategories = [
   "faktury i rachunki",
@@ -171,6 +173,13 @@ db.exec(`
 PRAGMA busy_timeout = 5000;
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS profiles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -336,10 +345,17 @@ CREATE TABLE IF NOT EXISTS mail_operations (
 
 ensureColumn("providers", "sender_only", "INTEGER NOT NULL DEFAULT 1");
 ensureColumn("providers", "email_body_pdf", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("providers", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
 ensureColumn("gmail_accounts", "auth_type", "TEXT NOT NULL DEFAULT 'gmail_oauth'");
 ensureColumn("gmail_accounts", "imap_config_json", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("gmail_accounts", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureColumn("processed_attachments", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureColumn("scan_jobs", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureColumn("chat_history", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureColumn("mail_cache", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
 ensureColumn("mail_cache", "is_unread", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("mail_cache", "html", "TEXT NOT NULL DEFAULT ''");
+ensureColumn("saved_mail_items", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
 ensureColumn("saved_mail_items", "thread_id", "TEXT");
 ensureColumn("saved_mail_items", "from_email", "TEXT");
 ensureColumn("saved_mail_items", "from_name", "TEXT");
@@ -355,28 +371,194 @@ ensureColumn("saved_mail_items", "action_required", "TEXT");
 ensureColumn("saved_mail_items", "due_date", "TEXT");
 ensureColumn("saved_mail_items", "amount", "TEXT");
 ensureColumn("saved_mail_items", "currency", "TEXT");
+ensureColumn("ignored_mail_items", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureColumn("important_items", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureColumn("mail_operations", "profile_id", `TEXT NOT NULL DEFAULT '${DEFAULT_PROFILE_ID}'`);
+ensureProfileStorage();
+migrateUntouchedNonDefaultProfileTemplates();
 backfillSavedMailSnapshots();
 
 function now() {
   return new Date().toISOString();
 }
 
-function getSetting(key: string): string | null {
+function ensureProfileStorage() {
+  const existing = db.prepare("SELECT id FROM profiles WHERE id = ?").get(DEFAULT_PROFILE_ID);
+  if (!existing) {
+    db.prepare("INSERT INTO profiles(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)").run(
+      DEFAULT_PROFILE_ID,
+      "Domyślny",
+      now(),
+      now()
+    );
+  }
+  if (!getGlobalSetting("activeProfileId")) setGlobalSetting("activeProfileId", DEFAULT_PROFILE_ID);
+}
+
+function migrateUntouchedNonDefaultProfileTemplates() {
+  const migrationKey = "profilesBlankTemplatesMigrationV1";
+  if (getGlobalSetting(migrationKey) === "1") return;
+
+  const profiles = db.prepare("SELECT id FROM profiles WHERE id != ?").all(DEFAULT_PROFILE_ID) as { id: string }[];
+  for (const profile of profiles) {
+    clearUntouchedDefaultCategoryRules(profile.id);
+    clearUntouchedDefaultProviders(profile.id);
+  }
+
+  setGlobalSetting(migrationKey, "1");
+}
+
+function clearUntouchedDefaultCategoryRules(profileId: string) {
+  const key = profileSettingKey(profileId, "categoryRules");
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+  if (!row) return;
+  try {
+    const parsed = JSON.parse(row.value);
+    if (JSON.stringify(parsed) === JSON.stringify(defaultCategoryRules)) {
+      setProfileSetting(profileId, "categoryRules", "[]");
+    }
+  } catch {
+    return;
+  }
+}
+
+function clearUntouchedDefaultProviders(profileId: string) {
+  const rows = db.prepare("SELECT * FROM providers WHERE profile_id = ? ORDER BY id").all(profileId) as Record<
+    string,
+    unknown
+  >[];
+  if (rows.length !== defaultProviders.length) return;
+
+  const defaultsById = new Map(defaultProviders.map(provider => [provider.id, provider]));
+  for (const row of rows) {
+    const baseId = unprofileProviderId(String(row.id), profileId);
+    const template = defaultsById.get(baseId);
+    if (!template || !providerRowMatchesTemplate(row, template, profileId)) return;
+  }
+
+  db.prepare("DELETE FROM providers WHERE profile_id = ?").run(profileId);
+}
+
+function providerRowMatchesTemplate(row: Record<string, unknown>, template: ProviderRule, profileId: string) {
+  return (
+    String(row.id) === profileProviderId(template.id, profileId) &&
+    String(row.name) === template.name &&
+    String(row.target_domain) === template.targetDomain &&
+    String(row.sender_domains_json) === JSON.stringify(template.senderDomains) &&
+    String(row.sender_emails_json) === JSON.stringify(template.senderEmails) &&
+    String(row.search_terms_json) === JSON.stringify(template.searchTerms) &&
+    Boolean(row.sender_only) === (template.senderOnly !== false) &&
+    Boolean(row.email_body_pdf) === Boolean(template.emailBodyPdf) &&
+    Boolean(row.enabled) === Boolean(template.enabled)
+  );
+}
+
+function getGlobalSetting(key: string): string | null {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
     | { value: string }
     | undefined;
   return row?.value ?? null;
 }
 
-function setSetting(key: string, value: string) {
+function setGlobalSetting(key: string, value: string) {
   db.prepare(
     "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
   ).run(key, value);
 }
 
+function profileSettingKey(profileId: string, key: string) {
+  return `profile:${profileId}:${key}`;
+}
+
+function getProfileSetting(profileId: string, key: string, useLegacyFallback = false): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(profileSettingKey(profileId, key)) as
+    | { value: string }
+    | undefined;
+  if (row) return row.value;
+  return useLegacyFallback ? getGlobalSetting(key) : null;
+}
+
+function setProfileSetting(profileId: string, key: string, value: string) {
+  setGlobalSetting(profileSettingKey(profileId, key), value);
+}
+
+export function getActiveProfileId() {
+  const configured = getGlobalSetting("activeProfileId") || DEFAULT_PROFILE_ID;
+  const row = db.prepare("SELECT id FROM profiles WHERE id = ?").get(configured);
+  return row ? configured : DEFAULT_PROFILE_ID;
+}
+
+function getActiveProfileLegacyFallback() {
+  return getActiveProfileId() === DEFAULT_PROFILE_ID;
+}
+
+function getSetting(key: string): string | null {
+  return getProfileSetting(getActiveProfileId(), key, getActiveProfileLegacyFallback());
+}
+
+function setSetting(key: string, value: string) {
+  setProfileSetting(getActiveProfileId(), key, value);
+}
+
+export function listProfiles(): Profile[] {
+  return db
+    .prepare("SELECT id, name, created_at, updated_at FROM profiles ORDER BY created_at ASC")
+    .all()
+    .map(mapProfile);
+}
+
+export function getActiveProfile(): Profile {
+  const profileId = getActiveProfileId();
+  const row = db.prepare("SELECT id, name, created_at, updated_at FROM profiles WHERE id = ?").get(profileId);
+  if (row) return mapProfile(row as Record<string, unknown>);
+  return createProfileRecord({ id: DEFAULT_PROFILE_ID, name: "Domyślny" });
+}
+
+export function createProfile(name: string): Profile {
+  const profile = createProfileRecord({
+    id: randomUUID(),
+    name: normalizeProfileName(name)
+  });
+  initializeProfileDefaults(profile.id, false);
+  setActiveProfile(profile.id);
+  return profile;
+}
+
+export function setActiveProfile(profileId: string): Profile {
+  const row = db.prepare("SELECT id, name, created_at, updated_at FROM profiles WHERE id = ?").get(profileId);
+  if (!row) throw new Error("Nie znaleziono profilu");
+  setGlobalSetting("activeProfileId", profileId);
+  initializeProfileDefaults(profileId, profileId === DEFAULT_PROFILE_ID);
+  return mapProfile(row as Record<string, unknown>);
+}
+
+function createProfileRecord(input: { id: string; name: string }): Profile {
+  db.prepare("INSERT OR IGNORE INTO profiles(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)").run(
+    input.id,
+    input.name,
+    now(),
+    now()
+  );
+  return mapProfile(
+    db.prepare("SELECT id, name, created_at, updated_at FROM profiles WHERE id = ?").get(input.id) as Record<
+      string,
+      unknown
+    >
+  );
+}
+
+function normalizeProfileName(name: string) {
+  const normalized = name.trim().replace(/\s+/g, " ");
+  return normalized || "Nowy profil";
+}
+
 function parseJsonListSetting(key: string, fallback: string[] = []) {
+  return parseJsonListSettingForProfile(getActiveProfileId(), key, fallback);
+}
+
+function parseJsonListSettingForProfile(profileId: string, key: string, fallback: string[] = []) {
   try {
-    const parsed = JSON.parse(getSetting(key) || "[]") as unknown;
+    const parsed = JSON.parse(getProfileSetting(profileId, key, profileId === DEFAULT_PROFILE_ID) || "[]") as unknown;
     if (!Array.isArray(parsed)) return fallback;
     const values = parsed.map(item => String(item).trim()).filter(Boolean);
     return values.length ? values : fallback;
@@ -386,8 +568,12 @@ function parseJsonListSetting(key: string, fallback: string[] = []) {
 }
 
 function parseSenderCategoryRulesSetting() {
+  return parseSenderCategoryRulesSettingForProfile(getActiveProfileId());
+}
+
+function parseSenderCategoryRulesSettingForProfile(profileId: string) {
   try {
-    const parsed = JSON.parse(getSetting("senderCategoryRules") || "[]") as unknown;
+    const parsed = JSON.parse(getProfileSetting(profileId, "senderCategoryRules", profileId === DEFAULT_PROFILE_ID) || "[]") as unknown;
     if (!Array.isArray(parsed)) return [] as Array<{ sender: string; category: string }>;
     return parsed
       .map(item => {
@@ -404,11 +590,15 @@ function parseSenderCategoryRulesSetting() {
 }
 
 function parseCategoryRulesSetting() {
+  return parseCategoryRulesSettingForProfile(getActiveProfileId());
+}
+
+function parseCategoryRulesSettingForProfile(profileId: string, seedTemplates = profileId === DEFAULT_PROFILE_ID) {
   try {
-    const raw = getSetting("categoryRules");
-    if (raw === null) return defaultCategoryRules;
+    const raw = getProfileSetting(profileId, "categoryRules", profileId === DEFAULT_PROFILE_ID);
+    if (raw === null) return seedTemplates ? defaultCategoryRules : [];
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return defaultCategoryRules;
+    if (!Array.isArray(parsed)) return seedTemplates ? defaultCategoryRules : [];
     const rules = parsed
       .map(item => {
         const row = item as Record<string, unknown>;
@@ -424,12 +614,12 @@ function parseCategoryRulesSetting() {
       .filter(rule => rule.category && (rule.senderTerms.length > 0 || rule.keywordTerms.length > 0));
     return rules;
   } catch {
-    return defaultCategoryRules;
+    return seedTemplates ? defaultCategoryRules : [];
   }
 }
 
-function migrateImportantCategoriesSetting() {
-  const current = parseJsonListSetting("importantCategories", defaultImportantCategories);
+function migrateImportantCategoriesSetting(profileId = getActiveProfileId()) {
+  const current = parseJsonListSettingForProfile(profileId, "importantCategories", defaultImportantCategories);
   const migrated: string[] = [];
   let changed = false;
 
@@ -458,13 +648,24 @@ function migrateImportantCategoriesSetting() {
   }
 
   if (changed) {
-    setSetting("importantCategories", JSON.stringify(migrated));
-    clearImportantItems();
+    setProfileSetting(profileId, "importantCategories", JSON.stringify(migrated));
+    clearImportantItems(profileId);
   }
 }
 
-function mergeDefaultProviderSenderEmails(providerId: string, emails: string[]) {
-  const row = db.prepare("SELECT sender_emails_json FROM providers WHERE id = ?").get(providerId) as
+function profileProviderId(providerId: string, profileId: string) {
+  const baseId = unprofileProviderId(providerId, profileId);
+  return profileId === DEFAULT_PROFILE_ID ? baseId : `${profileId}:${baseId}`;
+}
+
+function unprofileProviderId(providerId: string, profileId: string) {
+  const prefix = `${profileId}:`;
+  return profileId !== DEFAULT_PROFILE_ID && providerId.startsWith(prefix) ? providerId.slice(prefix.length) : providerId;
+}
+
+function mergeDefaultProviderSenderEmails(providerId: string, emails: string[], profileId = getActiveProfileId()) {
+  const id = profileProviderId(providerId, profileId);
+  const row = db.prepare("SELECT sender_emails_json FROM providers WHERE id = ? AND profile_id = ?").get(id, profileId) as
     | { sender_emails_json: string }
     | undefined;
   if (!row) return;
@@ -476,12 +677,17 @@ function mergeDefaultProviderSenderEmails(providerId: string, emails: string[]) 
   }
 
   if (merged.length !== current.length) {
-    db.prepare("UPDATE providers SET sender_emails_json = ? WHERE id = ?").run(JSON.stringify(merged), providerId);
+    db.prepare("UPDATE providers SET sender_emails_json = ? WHERE id = ? AND profile_id = ?").run(
+      JSON.stringify(merged),
+      id,
+      profileId
+    );
   }
 }
 
-function mergeDefaultProviderSenderDomains(providerId: string, domains: string[]) {
-  const row = db.prepare("SELECT sender_domains_json FROM providers WHERE id = ?").get(providerId) as
+function mergeDefaultProviderSenderDomains(providerId: string, domains: string[], profileId = getActiveProfileId()) {
+  const id = profileProviderId(providerId, profileId);
+  const row = db.prepare("SELECT sender_domains_json FROM providers WHERE id = ? AND profile_id = ?").get(id, profileId) as
     | { sender_domains_json: string }
     | undefined;
   if (!row) return;
@@ -493,12 +699,17 @@ function mergeDefaultProviderSenderDomains(providerId: string, domains: string[]
   }
 
   if (merged.length !== current.length) {
-    db.prepare("UPDATE providers SET sender_domains_json = ? WHERE id = ?").run(JSON.stringify(merged), providerId);
+    db.prepare("UPDATE providers SET sender_domains_json = ? WHERE id = ? AND profile_id = ?").run(
+      JSON.stringify(merged),
+      id,
+      profileId
+    );
   }
 }
 
-function mergeDefaultProviderSearchTerms(providerId: string, terms: string[]) {
-  const row = db.prepare("SELECT search_terms_json FROM providers WHERE id = ?").get(providerId) as
+function mergeDefaultProviderSearchTerms(providerId: string, terms: string[], profileId = getActiveProfileId()) {
+  const id = profileProviderId(providerId, profileId);
+  const row = db.prepare("SELECT search_terms_json FROM providers WHERE id = ? AND profile_id = ?").get(id, profileId) as
     | { search_terms_json: string }
     | undefined;
   if (!row) return;
@@ -510,16 +721,25 @@ function mergeDefaultProviderSearchTerms(providerId: string, terms: string[]) {
   }
 
   if (merged.length !== current.length) {
-    db.prepare("UPDATE providers SET search_terms_json = ? WHERE id = ?").run(JSON.stringify(merged), providerId);
+    db.prepare("UPDATE providers SET search_terms_json = ? WHERE id = ? AND profile_id = ?").run(
+      JSON.stringify(merged),
+      id,
+      profileId
+    );
   }
 }
 
-function ensureProviderEmailBodyPdf(providerId: string, enabled: boolean) {
-  db.prepare("UPDATE providers SET email_body_pdf = ? WHERE id = ?").run(enabled ? 1 : 0, providerId);
+function ensureProviderEmailBodyPdf(providerId: string, enabled: boolean, profileId = getActiveProfileId()) {
+  db.prepare("UPDATE providers SET email_body_pdf = ? WHERE id = ? AND profile_id = ?").run(
+    enabled ? 1 : 0,
+    profileProviderId(providerId, profileId),
+    profileId
+  );
 }
 
-function removeProviderSearchTerms(providerId: string, terms: string[]) {
-  const row = db.prepare("SELECT search_terms_json FROM providers WHERE id = ?").get(providerId) as
+function removeProviderSearchTerms(providerId: string, terms: string[], profileId = getActiveProfileId()) {
+  const id = profileProviderId(providerId, profileId);
+  const row = db.prepare("SELECT search_terms_json FROM providers WHERE id = ? AND profile_id = ?").get(id, profileId) as
     | { search_terms_json: string }
     | undefined;
   if (!row) return;
@@ -528,16 +748,21 @@ function removeProviderSearchTerms(providerId: string, terms: string[]) {
   const current = JSON.parse(row.search_terms_json) as string[];
   const filtered = current.filter(item => !banned.has(item.toLowerCase()));
   if (filtered.length !== current.length) {
-    db.prepare("UPDATE providers SET search_terms_json = ? WHERE id = ?").run(JSON.stringify(filtered), providerId);
+    db.prepare("UPDATE providers SET search_terms_json = ? WHERE id = ? AND profile_id = ?").run(
+      JSON.stringify(filtered),
+      id,
+      profileId
+    );
   }
 }
 
-function insertDefaultProvider(provider: ProviderRule) {
+function insertDefaultProvider(provider: ProviderRule, profileId = getActiveProfileId()) {
   db.prepare(`
-    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, email_body_pdf, enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers(profile_id, id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, email_body_pdf, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    provider.id,
+    profileId,
+    profileProviderId(provider.id, profileId),
     provider.name,
     provider.targetDomain,
     JSON.stringify(provider.senderDomains),
@@ -549,60 +774,77 @@ function insertDefaultProvider(provider: ProviderRule) {
   );
 }
 
-function ensureDefaultProviders(providerIds: string[]) {
-  const existing = db.prepare("SELECT id FROM providers WHERE id = ?");
+function ensureDefaultProviders(providerIds: string[], profileId = getActiveProfileId()) {
+  const existing = db.prepare("SELECT id FROM providers WHERE id = ? AND profile_id = ?");
   for (const provider of defaultProviders.filter(item => providerIds.includes(item.id))) {
-    if (existing.get(provider.id)) continue;
-    insertDefaultProvider(provider);
+    if (existing.get(profileProviderId(provider.id, profileId), profileId)) continue;
+    insertDefaultProvider(provider, profileId);
   }
 }
 
-function deleteDeprecatedProviders(providerIds: string[]) {
-  const statement = db.prepare("DELETE FROM providers WHERE id = ?");
-  for (const id of providerIds) statement.run(id);
+function deleteDeprecatedProviders(providerIds: string[], profileId = getActiveProfileId()) {
+  const statement = db.prepare("DELETE FROM providers WHERE id = ? AND profile_id = ?");
+  for (const id of providerIds) statement.run(profileProviderId(id, profileId), profileId);
 }
 
 export function initDefaults() {
+  initializeProfileDefaults(getActiveProfileId(), getActiveProfileId() === DEFAULT_PROFILE_ID);
+}
+
+function initializeProfileDefaults(profileId: string, useLegacyFallback: boolean) {
+  const read = (key: string) => getProfileSetting(profileId, key, useLegacyFallback);
+  const write = (key: string, value: string) => setProfileSetting(profileId, key, value);
+  const seedTemplates = profileId === DEFAULT_PROFILE_ID || useLegacyFallback;
   const settings: AppSettings = {
-    archiveDir: getSetting("archiveDir") || serverConfig.defaultArchiveDir,
-    historyYears: Number(getSetting("historyYears") || 4),
-    themeMode: normalizeThemeMode(getSetting("themeMode")),
-    autoSyncEnabled: normalizeBooleanSetting(getSetting("autoSyncEnabled"), false),
-    autoSyncMinutes: normalizeAutoSyncMinutes(getSetting("autoSyncMinutes")),
-    llmBaseUrl: getSetting("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
-    llmApiKey: getSetting("llmApiKey") || serverConfig.defaultLlmApiKey,
-    llmModel: getSetting("llmModel") || serverConfig.defaultLlmModel,
-    classifierMode: normalizeClassifierMode(getSetting("classifierMode") || serverConfig.defaultClassifierMode),
-    classifierBaseUrl: getSetting("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl,
-    classifierApiKey: getSetting("classifierApiKey") || serverConfig.defaultClassifierApiKey,
-    classifierModel: getSetting("classifierModel") || serverConfig.defaultClassifierModel,
-    classifierTimeoutMs: normalizeClassifierTimeout(getSetting("classifierTimeoutMs")),
-    importantSenders: parseJsonListSetting("importantSenders"),
-    importantCategories: parseJsonListSetting("importantCategories", defaultImportantCategories),
-    senderCategoryRules: parseSenderCategoryRulesSetting(),
-    categoryRules: parseCategoryRulesSetting()
+    archiveDir: read("archiveDir") || serverConfig.defaultArchiveDir,
+    historyYears: Number(read("historyYears") || 4),
+    themeMode: normalizeThemeMode(read("themeMode")),
+    autoSyncEnabled: normalizeBooleanSetting(read("autoSyncEnabled"), false),
+    autoSyncMinutes: normalizeAutoSyncMinutes(read("autoSyncMinutes")),
+    llmBaseUrl: read("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
+    llmApiKey: read("llmApiKey") || serverConfig.defaultLlmApiKey,
+    llmModel: read("llmModel") || serverConfig.defaultLlmModel,
+    classifierMode: normalizeClassifierMode(read("classifierMode") || serverConfig.defaultClassifierMode),
+    classifierBaseUrl: read("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl,
+    classifierApiKey: read("classifierApiKey") || serverConfig.defaultClassifierApiKey,
+    classifierModel: read("classifierModel") || serverConfig.defaultClassifierModel,
+    classifierTimeoutMs: normalizeClassifierTimeout(read("classifierTimeoutMs")),
+    importantSenders: parseJsonListSettingForProfile(profileId, "importantSenders"),
+    importantCategories: parseJsonListSettingForProfile(profileId, "importantCategories", defaultImportantCategories),
+    senderCategoryRules: parseSenderCategoryRulesSettingForProfile(profileId),
+    categoryRules: parseCategoryRulesSettingForProfile(profileId, seedTemplates)
   };
 
   for (const [key, value] of Object.entries(settings)) {
-    setSetting(key, typeof value === "string" ? value : JSON.stringify(value));
+    write(key, typeof value === "string" ? value : JSON.stringify(value));
   }
-  migrateImportantCategoriesSetting();
+  write("googleClientId", read("googleClientId") || serverConfig.googleClientId);
+  write("googleClientSecret", read("googleClientSecret") || serverConfig.googleClientSecret);
+  write(
+    "googleRedirectUri",
+    read("googleRedirectUri") || serverConfig.googleRedirectUri || "http://127.0.0.1:8797/api/auth/google/callback"
+  );
+  migrateImportantCategoriesSetting(profileId);
 
-  const existing = db.prepare("SELECT COUNT(*) AS count FROM providers").get() as { count: number };
-  if (existing.count === 0) {
+  const existing = db.prepare("SELECT COUNT(*) AS count FROM providers WHERE profile_id = ?").get(profileId) as {
+    count: number;
+  };
+  if (seedTemplates && existing.count === 0) {
     for (const provider of defaultProviders) {
-      insertDefaultProvider(provider);
+      insertDefaultProvider(provider, profileId);
     }
   }
-  deleteDeprecatedProviders(["canva"]);
-  ensureDefaultProviders(["capcut", "krea", "midjourney"]);
-  removeProviderSearchTerms("capcut", ["Apple"]);
-  mergeDefaultProviderSenderEmails("elevenlabs", ["team@elevenlabs.io"]);
-  mergeDefaultProviderSenderEmails("udio", ["support@udio.com"]);
-  mergeDefaultProviderSenderDomains("setapp", ["setapp.com", "macpaw.com", "paddle.com"]);
-  mergeDefaultProviderSenderEmails("setapp", ["help@paddle.com"]);
-  mergeDefaultProviderSearchTerms("setapp", ["Setapp", "Setapp Limited", "MacPaw"]);
-  ensureProviderEmailBodyPdf("setapp", true);
+  if (seedTemplates) {
+    deleteDeprecatedProviders(["canva"], profileId);
+    ensureDefaultProviders(["capcut", "krea", "midjourney"], profileId);
+    removeProviderSearchTerms("capcut", ["Apple"], profileId);
+    mergeDefaultProviderSenderEmails("elevenlabs", ["team@elevenlabs.io"], profileId);
+    mergeDefaultProviderSenderEmails("udio", ["support@udio.com"], profileId);
+    mergeDefaultProviderSenderDomains("setapp", ["setapp.com", "macpaw.com", "paddle.com"], profileId);
+    mergeDefaultProviderSenderEmails("setapp", ["help@paddle.com"], profileId);
+    mergeDefaultProviderSearchTerms("setapp", ["Setapp", "Setapp Limited", "MacPaw"], profileId);
+    ensureProviderEmailBodyPdf("setapp", true, profileId);
+  }
 }
 
 export function getAppSettings(): AppSettings {
@@ -654,6 +896,7 @@ export function updateUiState(input: Partial<UiState>) {
 export function listChatHistory(input: { limit?: number; days?: number } = {}): ChatTurn[] {
   const limit = Math.max(1, Math.min(50, Number(input.limit || 10)));
   const days = Math.max(1, Math.min(90, Number(input.days || 7)));
+  const profileId = getActiveProfileId();
   const since = new Date();
   since.setDate(since.getDate() - days);
   const rows = db
@@ -661,10 +904,11 @@ export function listChatHistory(input: { limit?: number; days?: number } = {}): 
       `SELECT id, question, answer, context_json, created_at
        FROM chat_history
        WHERE created_at >= ?
+         AND profile_id = ?
        ORDER BY created_at DESC
        LIMIT ?`
     )
-    .all(since.toISOString(), limit)
+    .all(since.toISOString(), profileId, limit)
     .map(mapChatTurn);
   return rows.reverse();
 }
@@ -672,8 +916,8 @@ export function listChatHistory(input: { limit?: number; days?: number } = {}): 
 export function insertChatTurn(input: { question: string; answer: string; contextJson: string }) {
   const id = randomUUID();
   db.prepare(
-    "INSERT INTO chat_history(id, question, answer, context_json, created_at) VALUES(?, ?, ?, ?, ?)"
-  ).run(id, input.question, input.answer, input.contextJson, now());
+    "INSERT INTO chat_history(id, profile_id, question, answer, context_json, created_at) VALUES(?, ?, ?, ?, ?, ?)"
+  ).run(id, getActiveProfileId(), input.question, input.answer, input.contextJson, now());
   pruneChatHistory();
   return mapChatTurn(db.prepare("SELECT * FROM chat_history WHERE id = ?").get(id) as Record<string, unknown>);
 }
@@ -681,7 +925,10 @@ export function insertChatTurn(input: { question: string; answer: string; contex
 function pruneChatHistory() {
   const before = new Date();
   before.setDate(before.getDate() - 90);
-  db.prepare("DELETE FROM chat_history WHERE created_at < ?").run(before.toISOString());
+  db.prepare("DELETE FROM chat_history WHERE created_at < ? AND profile_id = ?").run(
+    before.toISOString(),
+    getActiveProfileId()
+  );
 }
 
 export function updateAppSettings(input: Partial<AppSettings>) {
@@ -742,13 +989,35 @@ export function updateAppSettings(input: Partial<AppSettings>) {
   return getAppSettings();
 }
 
+export function getGoogleOAuthConfig() {
+  return {
+    googleClientId: getSetting("googleClientId") || serverConfig.googleClientId,
+    googleClientSecret: getSetting("googleClientSecret") || serverConfig.googleClientSecret,
+    googleRedirectUri:
+      getSetting("googleRedirectUri") ||
+      serverConfig.googleRedirectUri ||
+      "http://127.0.0.1:8797/api/auth/google/callback"
+  };
+}
+
+export function updateGoogleOAuthConfig(input: {
+  googleClientId?: string;
+  googleClientSecret?: string;
+  googleRedirectUri?: string;
+}) {
+  if (input.googleClientId !== undefined) setSetting("googleClientId", input.googleClientId);
+  if (input.googleClientSecret !== undefined) setSetting("googleClientSecret", input.googleClientSecret);
+  if (input.googleRedirectUri !== undefined) setSetting("googleRedirectUri", input.googleRedirectUri);
+  return getGoogleOAuthConfig();
+}
+
 function sameList(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
   return left.every((item, index) => item === right[index]);
 }
 
-function clearImportantItems() {
-  db.prepare("DELETE FROM important_items").run();
+function clearImportantItems(profileId = getActiveProfileId()) {
+  db.prepare("DELETE FROM important_items WHERE profile_id = ?").run(profileId);
 }
 
 function normalizeClassifierMode(value: unknown): AppSettings["classifierMode"] {
@@ -782,61 +1051,72 @@ function normalizeBooleanSetting(value: unknown, fallback: boolean) {
 }
 
 export function listAccounts(): GmailAccount[] {
-  return db.prepare("SELECT * FROM gmail_accounts ORDER BY email").all().map(mapAccount);
+  return db.prepare("SELECT * FROM gmail_accounts WHERE profile_id = ? ORDER BY email").all(getActiveProfileId()).map(mapAccount);
 }
 
 export function upsertAccount(input: { id: string; email: string; tokensJson: string; historyId?: string | null }) {
   db.prepare(`
-    INSERT INTO gmail_accounts(id, email, tokens_json, history_id, auth_type, imap_config_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'gmail_oauth', '{}', ?, ?)
+    INSERT INTO gmail_accounts(id, profile_id, email, tokens_json, history_id, auth_type, imap_config_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'gmail_oauth', '{}', ?, ?)
     ON CONFLICT(email) DO UPDATE SET
+      profile_id = excluded.profile_id,
       tokens_json = excluded.tokens_json,
       history_id = COALESCE(excluded.history_id, gmail_accounts.history_id),
       auth_type = 'gmail_oauth',
       imap_config_json = '{}',
       updated_at = excluded.updated_at
-  `).run(input.id, input.email, input.tokensJson, input.historyId || null, now(), now());
+  `).run(input.id, getActiveProfileId(), input.email, input.tokensJson, input.historyId || null, now(), now());
 }
 
 export function upsertImapAccount(input: { id: string; email: string; config: ImapAccountConfig }) {
   db.prepare(`
-    INSERT INTO gmail_accounts(id, email, tokens_json, history_id, auth_type, imap_config_json, created_at, updated_at)
-    VALUES (?, ?, '{}', NULL, 'imap', ?, ?, ?)
+    INSERT INTO gmail_accounts(id, profile_id, email, tokens_json, history_id, auth_type, imap_config_json, created_at, updated_at)
+    VALUES (?, ?, ?, '{}', NULL, 'imap', ?, ?, ?)
     ON CONFLICT(email) DO UPDATE SET
+      profile_id = excluded.profile_id,
       tokens_json = '{}',
       history_id = NULL,
       auth_type = 'imap',
       imap_config_json = excluded.imap_config_json,
       updated_at = excluded.updated_at
-  `).run(input.id, input.email, JSON.stringify(input.config), now(), now());
+  `).run(input.id, getActiveProfileId(), input.email, JSON.stringify(input.config), now(), now());
 }
 
 export function getAccount(id: string): GmailAccount | null {
-  const row = db.prepare("SELECT * FROM gmail_accounts WHERE id = ?").get(id);
+  const row = db.prepare("SELECT * FROM gmail_accounts WHERE id = ? AND profile_id = ?").get(id, getActiveProfileId());
   return row ? mapAccount(row as Record<string, unknown>) : null;
 }
 
 export function updateAccountTokens(id: string, tokensJson: string) {
-  db.prepare("UPDATE gmail_accounts SET tokens_json = ?, updated_at = ? WHERE id = ?").run(tokensJson, now(), id);
+  db.prepare("UPDATE gmail_accounts SET tokens_json = ?, updated_at = ? WHERE id = ? AND profile_id = ?").run(
+    tokensJson,
+    now(),
+    id,
+    getActiveProfileId()
+  );
 }
 
 export function deleteAccount(id: string) {
-  db.prepare("DELETE FROM important_items WHERE account_id = ?").run(id);
-  db.prepare("DELETE FROM saved_mail_items WHERE account_id = ?").run(id);
-  db.prepare("DELETE FROM ignored_mail_items WHERE account_id = ?").run(id);
-  db.prepare("DELETE FROM mail_cache WHERE account_id = ?").run(id);
-  db.prepare("DELETE FROM gmail_accounts WHERE id = ?").run(id);
+  const profileId = getActiveProfileId();
+  db.prepare("DELETE FROM important_items WHERE account_id = ? AND profile_id = ?").run(id, profileId);
+  db.prepare("DELETE FROM saved_mail_items WHERE account_id = ? AND profile_id = ?").run(id, profileId);
+  db.prepare("DELETE FROM ignored_mail_items WHERE account_id = ? AND profile_id = ?").run(id, profileId);
+  db.prepare("DELETE FROM mail_cache WHERE account_id = ? AND profile_id = ?").run(id, profileId);
+  db.prepare("DELETE FROM gmail_accounts WHERE id = ? AND profile_id = ?").run(id, profileId);
 }
 
 export function listProviders(): ProviderRule[] {
-  return db.prepare("SELECT * FROM providers ORDER BY name").all().map(mapProvider);
+  return db.prepare("SELECT * FROM providers WHERE profile_id = ? ORDER BY name").all(getActiveProfileId()).map(mapProvider);
 }
 
 export function upsertProvider(provider: ProviderRule) {
+  const profileId = getActiveProfileId();
+  const providerId = profileProviderId(provider.id || provider.targetDomain || randomUUID(), profileId);
   db.prepare(`
-    INSERT INTO providers(id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, email_body_pdf, enabled)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO providers(profile_id, id, name, target_domain, sender_domains_json, sender_emails_json, search_terms_json, sender_only, email_body_pdf, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
+      profile_id = excluded.profile_id,
       name = excluded.name,
       target_domain = excluded.target_domain,
       sender_domains_json = excluded.sender_domains_json,
@@ -846,7 +1126,8 @@ export function upsertProvider(provider: ProviderRule) {
       email_body_pdf = excluded.email_body_pdf,
       enabled = excluded.enabled
   `).run(
-    provider.id,
+    profileId,
+    providerId,
     provider.name,
     provider.targetDomain,
     JSON.stringify(provider.senderDomains),
@@ -861,8 +1142,8 @@ export function upsertProvider(provider: ProviderRule) {
 export function createJob(type: string): ScanJob {
   const id = randomUUID();
   db.prepare(
-    "INSERT INTO scan_jobs(id, type, status, progress_json) VALUES (?, ?, 'queued', ?)"
-  ).run(id, type, JSON.stringify({ message: "W kolejce" }));
+    "INSERT INTO scan_jobs(id, profile_id, type, status, progress_json) VALUES (?, ?, ?, 'queued', ?)"
+  ).run(id, getActiveProfileId(), type, JSON.stringify({ message: "W kolejce" }));
   return getJob(id)!;
 }
 
@@ -887,11 +1168,12 @@ export function updateJob(id: string, patch: Partial<ScanJob> & { progress?: unk
 
 export function listInvoices() {
   return db
-    .prepare("SELECT * FROM processed_attachments ORDER BY created_at DESC LIMIT 500")
-    .all();
+    .prepare("SELECT * FROM processed_attachments WHERE profile_id = ? ORDER BY created_at DESC LIMIT 500")
+    .all(getActiveProfileId());
 }
 
 export function cleanupInvoiceIndex(options: { removeMissingFiles?: boolean; removeDuplicateRows?: boolean }) {
+  const profileId = getActiveProfileId();
   const result = {
     checkedSavedFiles: 0,
     removedMissingFileRows: 0,
@@ -900,20 +1182,20 @@ export function cleanupInvoiceIndex(options: { removeMissingFiles?: boolean; rem
 
   if (options.removeMissingFiles !== false) {
     const rows = db
-      .prepare("SELECT id, file_path FROM processed_attachments WHERE status = 'saved'")
-      .all() as { id: string; file_path: string }[];
-    const deleteRow = db.prepare("DELETE FROM processed_attachments WHERE id = ?");
+      .prepare("SELECT id, file_path FROM processed_attachments WHERE status = 'saved' AND profile_id = ?")
+      .all(profileId) as { id: string; file_path: string }[];
+    const deleteRow = db.prepare("DELETE FROM processed_attachments WHERE id = ? AND profile_id = ?");
 
     for (const row of rows) {
       result.checkedSavedFiles += 1;
       if (fs.existsSync(row.file_path)) continue;
-      deleteRow.run(row.id);
+      deleteRow.run(row.id, profileId);
       result.removedMissingFileRows += 1;
     }
   }
 
   if (options.removeDuplicateRows !== false) {
-    const deleted = db.prepare("DELETE FROM processed_attachments WHERE status = 'duplicate'").run() as {
+    const deleted = db.prepare("DELETE FROM processed_attachments WHERE status = 'duplicate' AND profile_id = ?").run(profileId) as {
       changes: number;
     };
     result.removedDuplicateRows = deleted.changes;
@@ -923,6 +1205,7 @@ export function cleanupInvoiceIndex(options: { removeMissingFiles?: boolean; rem
 }
 
 export function listImportantItems(): ImportantItem[] {
+  const profileId = getActiveProfileId();
   return db
     .prepare(`
       SELECT
@@ -932,19 +1215,23 @@ export function listImportantItems(): ImportantItem[] {
       LEFT JOIN saved_mail_items
         ON saved_mail_items.account_id = important_items.account_id
        AND saved_mail_items.message_id = important_items.message_id
+       AND saved_mail_items.profile_id = important_items.profile_id
       LEFT JOIN ignored_mail_items
         ON ignored_mail_items.account_id = important_items.account_id
        AND ignored_mail_items.message_id = important_items.message_id
+       AND ignored_mail_items.profile_id = important_items.profile_id
       WHERE saved_mail_items.id IS NULL
         AND ignored_mail_items.id IS NULL
+        AND important_items.profile_id = ?
       ORDER BY received_at DESC
       LIMIT 100
     `)
-    .all()
+    .all(profileId)
     .map(mapImportantItem);
 }
 
 export function listOtherUnreadMailItems(): ImportantItem[] {
+  const profileId = getActiveProfileId();
   return db
     .prepare(`
       SELECT
@@ -971,24 +1258,29 @@ export function listOtherUnreadMailItems(): ImportantItem[] {
       LEFT JOIN important_items
         ON important_items.account_id = mail_cache.account_id
        AND important_items.message_id = mail_cache.message_id
+       AND important_items.profile_id = mail_cache.profile_id
       LEFT JOIN saved_mail_items
         ON saved_mail_items.account_id = mail_cache.account_id
        AND saved_mail_items.message_id = mail_cache.message_id
+       AND saved_mail_items.profile_id = mail_cache.profile_id
       LEFT JOIN ignored_mail_items
         ON ignored_mail_items.account_id = mail_cache.account_id
        AND ignored_mail_items.message_id = mail_cache.message_id
+       AND ignored_mail_items.profile_id = mail_cache.profile_id
       WHERE mail_cache.is_unread = 1
+        AND mail_cache.profile_id = ?
         AND important_items.id IS NULL
         AND saved_mail_items.id IS NULL
         AND ignored_mail_items.id IS NULL
       ORDER BY mail_cache.received_at DESC
       LIMIT 100
     `)
-    .all()
+    .all(profileId)
     .map(mapImportantItem);
 }
 
 export function listSavedMailItems(): ImportantItem[] {
+  const profileId = getActiveProfileId();
   return db
     .prepare(`
       SELECT
@@ -1015,22 +1307,26 @@ export function listSavedMailItems(): ImportantItem[] {
       LEFT JOIN mail_cache
         ON mail_cache.account_id = saved_mail_items.account_id
        AND mail_cache.message_id = saved_mail_items.message_id
+       AND mail_cache.profile_id = saved_mail_items.profile_id
       LEFT JOIN important_items
         ON important_items.account_id = saved_mail_items.account_id
        AND important_items.message_id = saved_mail_items.message_id
+       AND important_items.profile_id = saved_mail_items.profile_id
+      WHERE saved_mail_items.profile_id = ?
       ORDER BY saved_mail_items.created_at DESC
       LIMIT 100
     `)
-    .all()
+    .all(profileId)
     .map(mapImportantItem);
 }
 
 export function getImportantItem(id: string): ImportantItem | null {
-  const row = db.prepare("SELECT * FROM important_items WHERE id = ?").get(id);
+  const row = db.prepare("SELECT * FROM important_items WHERE id = ? AND profile_id = ?").get(id, getActiveProfileId());
   return row ? mapImportantItem(row as Record<string, unknown>) : null;
 }
 
 export function getImportantItemDetail(id: string) {
+  const profileId = getActiveProfileId();
   return db
     .prepare(
       `SELECT
@@ -1041,12 +1337,15 @@ export function getImportantItemDetail(id: string) {
       LEFT JOIN mail_cache
         ON mail_cache.account_id = important_items.account_id
        AND mail_cache.message_id = important_items.message_id
-      WHERE important_items.id = ?`
+       AND mail_cache.profile_id = important_items.profile_id
+      WHERE important_items.id = ?
+        AND important_items.profile_id = ?`
     )
-    .get(id) as (Record<string, unknown> & { mail_text?: string; mail_html?: string }) | undefined;
+    .get(id, profileId) as (Record<string, unknown> & { mail_text?: string; mail_html?: string }) | undefined;
 }
 
 export function getMailItemDetail(accountId: string, messageId: string) {
+  const profileId = getActiveProfileId();
   const fromCache = db
     .prepare(
       `SELECT
@@ -1072,19 +1371,23 @@ export function getMailItemDetail(accountId: string, messageId: string) {
       LEFT JOIN important_items
         ON important_items.account_id = mail_cache.account_id
        AND important_items.message_id = mail_cache.message_id
+       AND important_items.profile_id = mail_cache.profile_id
       LEFT JOIN saved_mail_items
         ON saved_mail_items.account_id = mail_cache.account_id
        AND saved_mail_items.message_id = mail_cache.message_id
+       AND saved_mail_items.profile_id = mail_cache.profile_id
       WHERE mail_cache.account_id = ?
-        AND mail_cache.message_id = ?`
+        AND mail_cache.message_id = ?
+        AND mail_cache.profile_id = ?`
     )
-    .get(accountId, messageId) as (Record<string, unknown> & { mail_text?: string; mail_html?: string }) | undefined;
+    .get(accountId, messageId, profileId) as (Record<string, unknown> & { mail_text?: string; mail_html?: string }) | undefined;
 
   if (fromCache) return fromCache;
 
   return db
     .prepare(
       `SELECT
+        saved_mail_items.profile_id,
         saved_mail_items.account_id,
         saved_mail_items.message_id,
         COALESCE(saved_mail_items.thread_id, '') AS thread_id,
@@ -1107,49 +1410,69 @@ export function getMailItemDetail(accountId: string, messageId: string) {
       LEFT JOIN important_items
         ON important_items.account_id = saved_mail_items.account_id
        AND important_items.message_id = saved_mail_items.message_id
+       AND important_items.profile_id = saved_mail_items.profile_id
       WHERE saved_mail_items.account_id = ?
-        AND saved_mail_items.message_id = ?`
+        AND saved_mail_items.message_id = ?
+        AND saved_mail_items.profile_id = ?`
     )
-    .get(accountId, messageId) as (Record<string, unknown> & { mail_text?: string; mail_html?: string }) | undefined;
+    .get(accountId, messageId, profileId) as (Record<string, unknown> & { mail_text?: string; mail_html?: string }) | undefined;
 }
 
 export function deleteImportantItem(id: string) {
-  db.prepare("DELETE FROM important_items WHERE id = ?").run(id);
+  db.prepare("DELETE FROM important_items WHERE id = ? AND profile_id = ?").run(id, getActiveProfileId());
 }
 
 export function deleteImportantItemByMessage(accountId: string, messageId: string) {
-  db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ?").run(accountId, messageId);
+  db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+    accountId,
+    messageId,
+    getActiveProfileId()
+  );
 }
 
 export function isMailIgnored(accountId: string, messageId: string) {
   return Boolean(
-    db.prepare("SELECT 1 FROM ignored_mail_items WHERE account_id = ? AND message_id = ?").get(accountId, messageId)
+    db
+      .prepare("SELECT 1 FROM ignored_mail_items WHERE account_id = ? AND message_id = ? AND profile_id = ?")
+      .get(accountId, messageId, getActiveProfileId())
   );
 }
 
 export function setMailIgnored(accountId: string, messageId: string, ignored: boolean) {
+  const profileId = getActiveProfileId();
   if (ignored) {
     db.prepare(
-      `INSERT INTO ignored_mail_items(id, account_id, message_id, created_at)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO ignored_mail_items(id, profile_id, account_id, message_id, created_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(account_id, message_id) DO UPDATE SET
+         profile_id = excluded.profile_id,
          created_at = excluded.created_at`
-    ).run(randomUUID(), accountId, messageId, now());
-    db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ?").run(accountId, messageId);
+    ).run(randomUUID(), profileId, accountId, messageId, now());
+    db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+      accountId,
+      messageId,
+      profileId
+    );
     return;
   }
-  db.prepare("DELETE FROM ignored_mail_items WHERE account_id = ? AND message_id = ?").run(accountId, messageId);
+  db.prepare("DELETE FROM ignored_mail_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+    accountId,
+    messageId,
+    profileId
+  );
 }
 
 export function setMailSaved(accountId: string, messageId: string, saved: boolean) {
+  const profileId = getActiveProfileId();
   if (saved) {
     const snapshot = getSavedMailSnapshotSource(accountId, messageId);
     db.prepare(
       `INSERT INTO saved_mail_items(
-        id, account_id, message_id, created_at, thread_id, from_email, from_name, subject, snippet,
+        id, profile_id, account_id, message_id, created_at, thread_id, from_email, from_name, subject, snippet,
         received_at, text, html, priority, category, summary, action_required, due_date, amount, currency
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(account_id, message_id) DO UPDATE SET
+        profile_id = excluded.profile_id,
         thread_id = excluded.thread_id,
         from_email = excluded.from_email,
         from_name = excluded.from_name,
@@ -1167,6 +1490,7 @@ export function setMailSaved(accountId: string, messageId: string, saved: boolea
         currency = excluded.currency`
     ).run(
       randomUUID(),
+      profileId,
       accountId,
       messageId,
       now(),
@@ -1188,15 +1512,27 @@ export function setMailSaved(accountId: string, messageId: string, saved: boolea
     );
     return;
   }
-  db.prepare("DELETE FROM saved_mail_items WHERE account_id = ? AND message_id = ?").run(accountId, messageId);
+  db.prepare("DELETE FROM saved_mail_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+    accountId,
+    messageId,
+    profileId
+  );
 }
 
 export function markMailCachedRead(accountId: string, messageId: string) {
-  db.prepare("UPDATE mail_cache SET is_unread = 0 WHERE account_id = ? AND message_id = ?").run(accountId, messageId);
+  db.prepare("UPDATE mail_cache SET is_unread = 0 WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+    accountId,
+    messageId,
+    getActiveProfileId()
+  );
 }
 
 export function markMailCachedUnread(accountId: string, messageId: string) {
-  db.prepare("UPDATE mail_cache SET is_unread = 1 WHERE account_id = ? AND message_id = ?").run(accountId, messageId);
+  db.prepare("UPDATE mail_cache SET is_unread = 1 WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+    accountId,
+    messageId,
+    getActiveProfileId()
+  );
 }
 
 export function createMailOperation(input: {
@@ -1206,9 +1542,9 @@ export function createMailOperation(input: {
 }) {
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO mail_operations(id, type, label, item_count, status, payload_json, created_at)
-     VALUES(?, ?, ?, ?, 'active', ?, ?)`
-  ).run(id, input.type, input.label, input.payload.items.length, JSON.stringify(input.payload), now());
+    `INSERT INTO mail_operations(id, profile_id, type, label, item_count, status, payload_json, created_at)
+     VALUES(?, ?, ?, ?, ?, 'active', ?, ?)`
+  ).run(id, getActiveProfileId(), input.type, input.label, input.payload.items.length, JSON.stringify(input.payload), now());
   pruneMailOperations();
   return getMailOperation(id);
 }
@@ -1218,10 +1554,11 @@ export function listMailOperations(limit = 50): MailOperation[] {
     .prepare(
       `SELECT id, type, label, item_count, status, payload_json, created_at, undone_at, error
        FROM mail_operations
+       WHERE profile_id = ?
        ORDER BY created_at DESC
        LIMIT ?`
     )
-    .all(Math.max(1, Math.min(50, limit)))
+    .all(getActiveProfileId(), Math.max(1, Math.min(50, limit)))
     .map(mapMailOperation);
 }
 
@@ -1230,33 +1567,37 @@ export function getMailOperation(id: string) {
     .prepare(
       `SELECT id, type, label, item_count, status, payload_json, created_at, undone_at, error
        FROM mail_operations
-       WHERE id = ?`
+       WHERE id = ?
+         AND profile_id = ?`
     )
-    .get(id) as Record<string, unknown> | undefined;
+    .get(id, getActiveProfileId()) as Record<string, unknown> | undefined;
   return row ? mapMailOperation(row) : null;
 }
 
 export function markMailOperationUndone(id: string, error: string | null = null) {
-  db.prepare("UPDATE mail_operations SET status = 'undone', undone_at = ?, error = ? WHERE id = ?").run(
+  db.prepare("UPDATE mail_operations SET status = 'undone', undone_at = ?, error = ? WHERE id = ? AND profile_id = ?").run(
     now(),
     error,
-    id
+    id,
+    getActiveProfileId()
   );
   return getMailOperation(id);
 }
 
 export function getReadOperationSnapshot(accountId: string, messageId: string): ReadOperationSnapshot {
+  const profileId = getActiveProfileId();
   const cached = db
     .prepare(
       `SELECT subject, from_email, from_name, is_unread
        FROM mail_cache
        WHERE account_id = ?
-         AND message_id = ?`
+         AND message_id = ?
+         AND profile_id = ?`
     )
-    .get(accountId, messageId) as Record<string, unknown> | undefined;
+    .get(accountId, messageId, profileId) as Record<string, unknown> | undefined;
   const importantItem = db
-    .prepare("SELECT * FROM important_items WHERE account_id = ? AND message_id = ?")
-    .get(accountId, messageId) as Record<string, unknown> | undefined;
+    .prepare("SELECT * FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?")
+    .get(accountId, messageId, profileId) as Record<string, unknown> | undefined;
 
   return {
     accountId,
@@ -1282,18 +1623,22 @@ export function restoreReadOperationSnapshot(snapshot: ReadOperationSnapshot) {
 }
 
 export function updateMailCacheBodies(accountId: string, messageId: string, text: string, html: string) {
-  db.prepare("UPDATE mail_cache SET text = ?, html = ? WHERE account_id = ? AND message_id = ?").run(
+  db.prepare("UPDATE mail_cache SET text = ?, html = ? WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
     text,
     html,
     accountId,
-    messageId
+    messageId,
+    getActiveProfileId()
   );
 }
 
 function pruneMailOperations() {
   const before = new Date();
   before.setDate(before.getDate() - 90);
-  db.prepare("DELETE FROM mail_operations WHERE created_at < ?").run(before.toISOString());
+  db.prepare("DELETE FROM mail_operations WHERE created_at < ? AND profile_id = ?").run(
+    before.toISOString(),
+    getActiveProfileId()
+  );
 }
 
 function normalizeImportantSnapshot(row: Record<string, unknown>) {
@@ -1321,14 +1666,16 @@ function normalizeImportantSnapshot(row: Record<string, unknown>) {
 
 function restoreImportantItem(row: Record<string, unknown>) {
   const snapshot = normalizeImportantSnapshot(row);
+  const profileId = getActiveProfileId();
   db.prepare(
     `INSERT INTO important_items(
-      id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
+      id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
       received_at, priority, category, summary, action_required, due_date, amount, currency,
       raw_json, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(account_id, message_id) DO UPDATE SET
+      profile_id = excluded.profile_id,
       thread_id = excluded.thread_id,
       from_email = excluded.from_email,
       from_name = excluded.from_name,
@@ -1345,6 +1692,7 @@ function restoreImportantItem(row: Record<string, unknown>) {
       raw_json = excluded.raw_json`
   ).run(
     snapshot.id,
+    profileId,
     snapshot.account_id,
     snapshot.message_id,
     snapshot.thread_id,
@@ -1378,6 +1726,15 @@ function mapAccount(row: Record<string, unknown>): GmailAccount {
   };
 }
 
+function mapProfile(row: Record<string, unknown>): Profile {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
 function mapChatTurn(row: Record<string, unknown>): ChatTurn {
   return {
     id: String(row.id),
@@ -1389,8 +1746,9 @@ function mapChatTurn(row: Record<string, unknown>): ChatTurn {
 }
 
 function mapProvider(row: Record<string, unknown>): ProviderRule {
+  const profileId = row.profile_id ? String(row.profile_id) : DEFAULT_PROFILE_ID;
   return {
-    id: String(row.id),
+    id: unprofileProviderId(String(row.id), profileId),
     name: String(row.name),
     targetDomain: String(row.target_domain),
     senderDomains: JSON.parse(String(row.sender_domains_json)) as string[],
@@ -1410,6 +1768,7 @@ function ensureColumn(table: string, column: string, definition: string) {
 }
 
 function getSavedMailSnapshotSource(accountId: string, messageId: string) {
+  const profileId = getActiveProfileId();
   return db
     .prepare(
       `SELECT
@@ -1432,10 +1791,12 @@ function getSavedMailSnapshotSource(accountId: string, messageId: string) {
       LEFT JOIN important_items
         ON important_items.account_id = mail_cache.account_id
        AND important_items.message_id = mail_cache.message_id
+       AND important_items.profile_id = mail_cache.profile_id
       WHERE mail_cache.account_id = ?
-        AND mail_cache.message_id = ?`
+        AND mail_cache.message_id = ?
+        AND mail_cache.profile_id = ?`
     )
-    .get(accountId, messageId) as Record<string, unknown> | undefined;
+    .get(accountId, messageId, profileId) as Record<string, unknown> | undefined;
 }
 
 function backfillSavedMailSnapshots() {
@@ -1463,9 +1824,11 @@ function backfillSavedMailSnapshots() {
       LEFT JOIN mail_cache
         ON mail_cache.account_id = saved_mail_items.account_id
        AND mail_cache.message_id = saved_mail_items.message_id
+       AND mail_cache.profile_id = saved_mail_items.profile_id
       LEFT JOIN important_items
         ON important_items.account_id = saved_mail_items.account_id
-       AND important_items.message_id = saved_mail_items.message_id`
+       AND important_items.message_id = saved_mail_items.message_id
+       AND important_items.profile_id = saved_mail_items.profile_id`
     )
     .all() as Record<string, unknown>[];
 
@@ -1487,7 +1850,8 @@ function backfillSavedMailSnapshots() {
           amount = COALESCE(?, amount),
           currency = COALESCE(?, currency)
       WHERE account_id = ?
-        AND message_id = ?`
+        AND message_id = ?
+        AND profile_id = ?`
   );
 
   for (const row of rows) {
@@ -1508,7 +1872,8 @@ function backfillSavedMailSnapshots() {
       row.amount ? String(row.amount) : null,
       row.currency ? String(row.currency) : null,
       String(row.account_id),
-      String(row.message_id)
+      String(row.message_id),
+      row.profile_id ? String(row.profile_id) : DEFAULT_PROFILE_ID
     );
   }
 }

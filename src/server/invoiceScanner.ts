@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { db, getAppSettings, listAccounts, listProviders, updateJob } from "./db.js";
+import { db, getActiveProfileId, getAppSettings, listAccounts, listProviders, updateJob } from "./db.js";
 import { messageDate, parseFromHeader, type ParsedGmailMessage } from "./gmail.js";
 import { downloadAccountAttachment, getAccountParsedMessage, listAccountMessageIds } from "./mailSource.js";
 import { renderEmailPdf } from "./emailPdf.js";
@@ -51,6 +51,7 @@ export async function runInvoiceBackfill(
   options: { years?: number; days?: number; accountId?: string | null }
 ) {
   const startedAt = new Date().toISOString();
+  const profileId = getActiveProfileId();
   const settings = getAppSettings();
   const years = Math.max(1, Math.min(10, Number(options.years || settings.historyYears || 4)));
   const archiveDir = settings.archiveDir;
@@ -122,7 +123,7 @@ export async function runInvoiceBackfill(
             progress.provider = provider.name;
             progress.message = `Przetwarzam ${messageId}`;
             updateJob(jobId, { progress });
-            await processMessage(account, messageId, provider, archiveDir, progress);
+            await processMessage(account, messageId, provider, archiveDir, progress, profileId);
           } catch (error) {
             progress.errors += 1;
             progress.message = error instanceof Error ? error.message : "Błąd przetwarzania wiadomości";
@@ -181,7 +182,8 @@ async function processMessage(
   messageId: string,
   provider: ProviderRule,
   archiveDir: string,
-  progress: ScanProgress
+  progress: ScanProgress,
+  profileId: string
 ) {
   const message = await getAccountParsedMessage(account, messageId);
   const from = parseFromHeader(message.headers.from || "");
@@ -202,7 +204,7 @@ async function processMessage(
   progress.scannedMessages += 1;
 
   if (provider.emailBodyPdf) {
-    await processEmailBodyInvoice(account, messageId, provider, archiveDir, progress, message);
+    await processEmailBodyInvoice(account, messageId, provider, archiveDir, progress, message, profileId);
   }
 
   const pdfAttachments = message.attachments.filter(
@@ -214,9 +216,9 @@ async function processMessage(
   for (const attachment of pdfAttachments) {
     const already = db
       .prepare(
-        "SELECT status, provider_domain FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ?"
+        "SELECT status, provider_domain FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ? AND profile_id = ?"
       )
-      .get(account.id, messageId, attachment.attachmentId) as
+      .get(account.id, messageId, attachment.attachmentId, profileId) as
       | { status: string; provider_domain: string }
       | undefined;
     if (already?.status === "saved") {
@@ -227,8 +229,8 @@ async function processMessage(
     const buffer = await downloadAccountAttachment(account, messageId, attachment.attachmentId);
     const sha256 = createHash("sha256").update(buffer).digest("hex");
     const duplicateByHash = db
-      .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved'")
-      .get(sha256) as { provider_domain: string; file_path: string } | undefined;
+      .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved' AND profile_id = ?")
+      .get(sha256, profileId) as { provider_domain: string; file_path: string } | undefined;
     if (duplicateByHash?.provider_domain === provider.targetDomain) {
       progress.skippedDuplicates += 1;
       continue;
@@ -259,6 +261,7 @@ async function processMessage(
     await fs.writeFile(filePath, buffer);
 
     insertProcessed({
+      profileId,
       accountId: account.id,
       messageId,
       attachmentId: attachment.attachmentId,
@@ -286,14 +289,15 @@ async function processEmailBodyInvoice(
   provider: ProviderRule,
   archiveDir: string,
   progress: ScanProgress,
-  message: ParsedGmailMessage
+  message: ParsedGmailMessage,
+  profileId: string
 ) {
   const syntheticAttachmentId = "email-body-pdf";
   const already = db
     .prepare(
-      "SELECT status, provider_domain FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ?"
+      "SELECT status, provider_domain FROM processed_attachments WHERE account_id = ? AND message_id = ? AND attachment_id = ? AND profile_id = ?"
     )
-    .get(account.id, messageId, syntheticAttachmentId) as
+    .get(account.id, messageId, syntheticAttachmentId, profileId) as
     | { status: string; provider_domain: string }
     | undefined;
   if (already?.status === "saved") {
@@ -339,8 +343,8 @@ async function processEmailBodyInvoice(
   });
   const sha256 = createHash("sha256").update(pdf).digest("hex");
   const duplicateByHash = db
-    .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved'")
-    .get(sha256) as { provider_domain: string; file_path: string } | undefined;
+    .prepare("SELECT provider_domain, file_path FROM processed_attachments WHERE sha256 = ? AND status = 'saved' AND profile_id = ?")
+    .get(sha256, profileId) as { provider_domain: string; file_path: string } | undefined;
   if (duplicateByHash?.provider_domain === provider.targetDomain) {
     progress.skippedDuplicates += 1;
     return;
@@ -348,6 +352,7 @@ async function processEmailBodyInvoice(
 
   await fs.writeFile(filePath, pdf);
   insertProcessed({
+    profileId,
     accountId: account.id,
     messageId,
     attachmentId: syntheticAttachmentId,
@@ -369,6 +374,7 @@ async function processEmailBodyInvoice(
 }
 
 function insertProcessed(input: {
+  profileId: string;
   accountId: string;
   messageId: string;
   attachmentId: string;
@@ -388,12 +394,13 @@ function insertProcessed(input: {
 }) {
   db.prepare(`
     INSERT INTO processed_attachments(
-      id, account_id, message_id, attachment_id, provider_domain, sha256, file_path,
+      id, profile_id, account_id, message_id, attachment_id, provider_domain, sha256, file_path,
       invoice_month, invoice_date, due_date, amount, currency, invoice_number,
       date_source, original_filename, status, error, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(account_id, message_id, attachment_id) DO UPDATE SET
+      profile_id = excluded.profile_id,
       provider_domain = excluded.provider_domain,
       sha256 = excluded.sha256,
       file_path = excluded.file_path,
@@ -410,6 +417,7 @@ function insertProcessed(input: {
       created_at = excluded.created_at
   `).run(
     randomUUID(),
+    input.profileId,
     input.accountId,
     input.messageId,
     input.attachmentId,

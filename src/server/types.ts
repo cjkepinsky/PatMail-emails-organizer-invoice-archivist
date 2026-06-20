@@ -10,6 +10,13 @@ export type ProviderRule = {
   enabled: boolean;
 };
 
+export type Profile = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AppSettings = {
   archiveDir: string;
   historyYears: number;
