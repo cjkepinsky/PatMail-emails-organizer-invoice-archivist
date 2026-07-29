@@ -714,6 +714,87 @@ app.get("/api/chat/history", (_req, res) => {
   res.json(listChatHistory());
 });
 
+async function buildFocusedMailContext(input: unknown, language: UiLanguage) {
+  if (!input || typeof input !== "object") return null;
+  const requested = input as { accountId?: unknown; messageId?: unknown };
+  const accountId = String(requested.accountId || "").trim();
+  const messageId = String(requested.messageId || "").trim();
+  if (!accountId || !messageId) return null;
+
+  const account = getAccount(accountId);
+  let row = getMailItemDetail(accountId, messageId);
+  if (account && (!row || (!row.mail_text && !row.mail_html))) {
+    try {
+      const message = await getAccountParsedMessage(account, messageId);
+      const messageText = message.text || htmlToContextText(message.html) || message.snippet || "";
+      updateMailCacheBodies(accountId, messageId, messageText, message.html || "");
+      row = getMailItemDetail(accountId, messageId) || row;
+    } catch {
+      // Mailbox chat can still answer from cached metadata or the regular mailbox context.
+    }
+  }
+
+  if (!row) return null;
+  const fromEmail = String(row.from_email || "");
+  const fromName = String(row.from_name || "");
+  const rawText = String(row.mail_text || "");
+  const rawHtml = String(row.mail_html || "");
+  const text = rawText || htmlToContextText(rawHtml) || String(row.snippet || "");
+
+  return {
+    accountId,
+    messageId,
+    subject: String(row.subject || ""),
+    from: `${fromName || fromEmail} <${fromEmail}>`,
+    toAccount: account?.email || "",
+    receivedAt: String(row.received_at || ""),
+    category: String(row.category || ""),
+    priority: String(row.priority || "low"),
+    summary: String(row.summary || ""),
+    actionRequired: String(row.action_required || ""),
+    dueDate: row.due_date || null,
+    amount: row.amount || null,
+    currency: row.currency || null,
+    text: truncateForContext(text, 14_000),
+    instruction:
+      language === "en"
+        ? "Treat this focusedMail as the primary context for the user's next question."
+        : "Traktuj focusedMail jako główny kontekst najbliższego pytania użytkownika."
+  };
+}
+
+function htmlToContextText(html: string) {
+  if (!html) return "";
+  return decodeBasicHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function decodeBasicHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function truncateForContext(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength).trimEnd()}\n[...]`;
+}
+
 app.post("/api/chat", async (req, res) => {
   const language = appLanguage();
   try {
@@ -724,8 +805,22 @@ app.post("/api/chat", async (req, res) => {
       answer: turn.answer,
       createdAt: turn.createdAt
     }));
+    const focusedMail = await buildFocusedMailContext(req.body?.mailContext, language);
+    const searchContext = getChatContext(question);
+    const contextPolicy = [
+      searchContext.contextPolicy,
+      focusedMail
+        ? language === "en"
+          ? "When focusedMail is present, answer primarily from that email. Use recentImportant and focusedMatches only as secondary context."
+          : "Gdy focusedMail jest obecny, odpowiadaj przede wszystkim na podstawie tego maila. recentImportant i focusedMatches traktuj tylko jako kontekst pomocniczy."
+        : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
     const context = {
-      ...getChatContext(question),
+      ...searchContext,
+      contextPolicy,
+      ...(focusedMail ? { focusedMail } : {}),
       previousChat
     };
     const answer = await chatWithMailbox({ question, context });

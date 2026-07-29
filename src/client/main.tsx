@@ -134,6 +134,14 @@ type ChatTurn = {
   createdAt: string;
 };
 
+type MailChatContext = {
+  accountId: string;
+  messageId: string;
+  subject: string;
+  fromLabel: string;
+  receivedAt: string;
+};
+
 type MailOperation = {
   id: string;
   type: "mark-read" | "mark-visible-read";
@@ -300,6 +308,13 @@ const TEXT = {
     notImportant: "Nieważne",
     removeSaved: "Usuń z zapisanych",
     save: "Zapisz",
+    summarizeMail: "Streść",
+    askAboutMail: "Zadaj pytanie",
+    chatContextActive: "Kontekst maila",
+    clearChatContext: "Wyczyść",
+    chatContextReady: "Czat będzie teraz odpowiadał w kontekście wybranego maila.",
+    summarizingSelectedMail: "Streszczam wybrany mail...",
+    mailSummaryReady: "Podsumowanie dodane do czatu.",
     attachments: "Załączniki",
     open: "Otwórz",
     download: "Pobierz",
@@ -477,6 +492,13 @@ const TEXT = {
     notImportant: "Not important",
     removeSaved: "Remove from saved",
     save: "Save",
+    summarizeMail: "Summarize",
+    askAboutMail: "Ask question",
+    chatContextActive: "Mail context",
+    clearChatContext: "Clear",
+    chatContextReady: "Mailbox chat will now answer in the context of the selected email.",
+    summarizingSelectedMail: "Summarizing the selected email...",
+    mailSummaryReady: "Summary added to the chat.",
     attachments: "Attachments",
     open: "Open",
     download: "Download",
@@ -570,6 +592,7 @@ function App() {
   const [question, setQuestion] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
   const [chatPendingQuestion, setChatPendingQuestion] = useState("");
+  const [mailChatContext, setMailChatContext] = useState<MailChatContext | null>(null);
   const [operations, setOperations] = useState<MailOperation[]>([]);
   const [operationUndoingId, setOperationUndoingId] = useState("");
   const accountEmailById = useMemo(() => {
@@ -617,6 +640,10 @@ function App() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    setMailChatContext(null);
+  }, [activeProfileId]);
 
   useEffect(() => {
     const rules = settings?.categoryRules || [];
@@ -1098,24 +1125,77 @@ function App() {
     );
   }
 
+  function mailContextFromDetail(mail: ImportantDetail): MailChatContext {
+    return {
+      accountId: mail.accountId,
+      messageId: mail.messageId,
+      subject: mail.subject,
+      fromLabel: `${mail.fromName || mail.fromEmail} <${mail.fromEmail}>`,
+      receivedAt: mail.receivedAt
+    };
+  }
+
+  function summaryQuestionForSelectedMail() {
+    return language === "en"
+      ? "Summarize the selected email. Focus on what it is about, dates, amounts, deadlines, and what I should do next."
+      : "Streść wybrany mail. Skup się na tym, czego dotyczy, datach, kwotach, terminach i tym, co powinienem zrobić dalej.";
+  }
+
+  async function submitMailboxQuestion(
+    askedQuestion: string,
+    focusedContext: MailChatContext | null,
+    restoreQuestionOnError = false
+  ) {
+    const trimmedQuestion = askedQuestion.trim();
+    if (!trimmedQuestion || chatPendingQuestion) return false;
+    setChatPendingQuestion(trimmedQuestion);
+    try {
+      const result = await api("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          question: trimmedQuestion,
+          ...(focusedContext
+            ? {
+                mailContext: {
+                  accountId: focusedContext.accountId,
+                  messageId: focusedContext.messageId
+                }
+              }
+            : {})
+        })
+      });
+      setChatHistory(result.chatHistory || []);
+      return true;
+    } catch (error) {
+      setStatus(apiErrorMessage(error, language));
+      if (restoreQuestionOnError) setQuestion(trimmedQuestion);
+      return false;
+    } finally {
+      setChatPendingQuestion("");
+    }
+  }
+
+  async function summarizeSelectedMail() {
+    if (!selectedImportant || chatPendingQuestion) return;
+    const context = mailContextFromDetail(selectedImportant);
+    setMailChatContext(context);
+    setStatus(t.summarizingSelectedMail);
+    const ok = await submitMailboxQuestion(summaryQuestionForSelectedMail(), context);
+    if (ok) setStatus(t.mailSummaryReady);
+  }
+
+  function askAboutSelectedMail() {
+    if (!selectedImportant) return;
+    setMailChatContext(mailContextFromDetail(selectedImportant));
+    setStatus(t.chatContextReady);
+  }
+
   async function askMailbox(event: React.FormEvent) {
     event.preventDefault();
     const askedQuestion = question.trim();
     if (!askedQuestion || chatPendingQuestion) return;
     setQuestion("");
-    setChatPendingQuestion(askedQuestion);
-    try {
-      const result = await api("/api/chat", {
-        method: "POST",
-        body: JSON.stringify({ question: askedQuestion })
-      });
-      setChatHistory(result.chatHistory || []);
-    } catch (error) {
-      setStatus(apiErrorMessage(error, language));
-      setQuestion(askedQuestion);
-    } finally {
-      setChatPendingQuestion("");
-    }
+    await submitMailboxQuestion(askedQuestion, mailChatContext, true);
   }
 
   async function sendReply(event: React.FormEvent) {
@@ -2213,6 +2293,19 @@ function App() {
                       <button className="button secondary" onClick={() => void toggleSelectedMailSaved()}>
                         {selectedImportant.saved ? t.removeSaved : t.save}
                       </button>
+                      <div className="preview-chat-actions">
+                        <button
+                          className="button secondary"
+                          disabled={Boolean(chatPendingQuestion)}
+                          onClick={() => void summarizeSelectedMail()}
+                          type="button"
+                        >
+                          {t.summarizeMail}
+                        </button>
+                        <button className="button secondary" onClick={askAboutSelectedMail} type="button">
+                          {t.askAboutMail}
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {selectedImportant.actionRequired && (
@@ -2296,6 +2389,20 @@ function App() {
           <h2>{t.mailboxChat}</h2>
           <span>{t.chatWindowInfo}</span>
         </div>
+        {mailChatContext && (
+          <div className="chat-context-strip">
+            <div>
+              <span>{t.chatContextActive}</span>
+              <strong>{mailChatContext.subject}</strong>
+              <small>
+                {mailChatContext.fromLabel} · {formatDateTime(mailChatContext.receivedAt, language)}
+              </small>
+            </div>
+            <button className="small-button" onClick={() => setMailChatContext(null)} type="button">
+              {t.clearChatContext}
+            </button>
+          </div>
+        )}
         <form className="chat-form" onSubmit={askMailbox}>
           <input
             disabled={Boolean(chatPendingQuestion)}

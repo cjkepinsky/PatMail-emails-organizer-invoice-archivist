@@ -526,6 +526,14 @@ small {
   gap: 8px;
 }
 
+.preview-chat-actions {
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .preview-header h3 {
   margin: 10px 0 6px;
   line-height: 1.25;
@@ -1135,6 +1143,34 @@ textarea {
   margin-top: 14px;
 }
 
+.chat-context-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-faint);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.chat-context-strip div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chat-context-strip span,
+.chat-context-strip small {
+  color: var(--muted);
+}
+
+.chat-context-strip strong,
+.chat-context-strip small {
+  overflow-wrap: anywhere;
+}
+
 .chat-form input {
   flex: 1 1 360px;
 }
@@ -1252,6 +1288,7 @@ th {
   .feed-meta,
   .feed-links,
   .preview-actions,
+  .preview-chat-actions,
   .pagination,
   .pagination-actions,
   .single-editor-toolbar {
