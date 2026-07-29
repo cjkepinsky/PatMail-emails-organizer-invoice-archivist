@@ -71,15 +71,19 @@ export async function classifyMailWithLlm(input: {
   text: string;
   importantSenders: string[];
   importantCategories: string[];
+  language?: "pl" | "en";
 }): Promise<MailClassification | null> {
   const settings = getAppSettings();
   if (settings.classifierMode === "rules" || !settings.classifierBaseUrl) return null;
+  const language = input.language || settings.language || "pl";
 
   const messages = [
     {
       role: "system",
       content:
-        "Jesteś lokalnym asystentem pocztowym. Oceniasz, czy mail jest ważny dla użytkownika. Zwracaj wyłącznie JSON bez markdown. Jako ważne traktuj tylko maile pasujące do listy configured_important_categories albo od important_senders. Newslettery, marketing i luźne treści są nisko, chyba że wyraźnie pasują do skonfigurowanych kategorii."
+        language === "en"
+          ? "You are a local mailbox assistant. Decide whether an email is important for the user. Return only JSON without markdown. Treat as important only emails matching configured_important_categories or important_senders. Newsletters, marketing, and casual content are low priority unless they clearly match configured categories. Write summary and action_required in English."
+          : "Jesteś lokalnym asystentem pocztowym. Oceniasz, czy mail jest ważny dla użytkownika. Zwracaj wyłącznie JSON bez markdown. Jako ważne traktuj tylko maile pasujące do listy configured_important_categories albo od important_senders. Newslettery, marketing i luźne treści są nisko, chyba że wyraźnie pasują do skonfigurowanych kategorii. Pisz summary i action_required po polsku."
     },
     {
       role: "user",
@@ -94,9 +98,9 @@ export async function classifyMailWithLlm(input: {
         },
         expected_json_schema: {
           priority: "high | medium | low",
-          category: "jedna z configured_important_categories albo noise | other",
-          summary: "jedno krótkie zdanie po polsku",
-          action_required: "co użytkownik powinien zrobić albo pusty string",
+          category: language === "en" ? "one of configured_important_categories or noise | other" : "jedna z configured_important_categories albo noise | other",
+          summary: language === "en" ? "one short sentence in English" : "jedno krótkie zdanie po polsku",
+          action_required: language === "en" ? "what the user should do, or an empty string" : "co użytkownik powinien zrobić albo pusty string",
           due_date: "YYYY-MM-DD albo null",
           amount: "kwota jako tekst albo null",
           currency: "PLN | USD | EUR | GBP albo null"
@@ -121,14 +125,19 @@ export async function classifyMailWithLlm(input: {
 export async function chatWithMailbox(input: { question: string; context: unknown }) {
   const settings = getAppSettings();
   if (!settings.llmApiKey) {
-    return "Nie skonfigurowano tokenu OpenAI do czatu ze skrzynką.";
+    return settings.language === "en"
+      ? "OpenAI token for mailbox chat is not configured."
+      : "Nie skonfigurowano tokenu OpenAI do czatu ze skrzynką.";
   }
+  const language = settings.language || "pl";
 
   const messages = [
     {
       role: "system",
       content:
-        "Jesteś asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania."
+        language === "en"
+          ? "You are the user's assistant for talking with Gmail mailboxes. Answer in English, briefly and concretely. Use only the provided context; if something is missing from context, say so directly. Prefer 3-7 short bullet points, dates, amounts, and required actions."
+          : "Jesteś asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania."
     },
     {
       role: "user",
@@ -191,8 +200,11 @@ async function resolveLoadedModel(
   const modelIds = await listLoadedModels(settings, baseUrl);
   const selected = selectModel(modelIds, settings.model || "auto", settings.fallbackToFirstModel !== false);
   if (!selected) {
+    const language = getAppSettings().language || "pl";
     throw new Error(
-      "Lokalny serwer LLM nie zwrócił żadnego załadowanego modelu. Załaduj model ręcznie w serwerze LLM i spróbuj ponownie."
+      language === "en"
+        ? "The local LLM server did not return any loaded model. Load the model manually in the LLM server and try again."
+        : "Lokalny serwer LLM nie zwrócił żadnego załadowanego modelu. Załaduj model ręcznie w serwerze LLM i spróbuj ponownie."
     );
   }
   return selected;
@@ -212,8 +224,11 @@ async function listLoadedModels(
   });
 
   if (!response.ok) {
+    const language = getAppSettings().language || "pl";
     throw new Error(
-      `Nie mogę sprawdzić załadowanego modelu przez ${baseUrl}/models: HTTP ${response.status}`
+      language === "en"
+        ? `Could not check the loaded model through ${baseUrl}/models: HTTP ${response.status}`
+        : `Nie mogę sprawdzić załadowanego modelu przez ${baseUrl}/models: HTTP ${response.status}`
     );
   }
 

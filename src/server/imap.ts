@@ -291,7 +291,12 @@ function parsedMailToMessage(parsed: ParsedMail, fetched: FetchMessageObject, id
     bcc: addressText(parsed.bcc) || headerText(parsed, "bcc"),
     "reply-to": parsed.replyTo?.text || headerText(parsed, "reply-to"),
     subject: parsed.subject || headerText(parsed, "subject"),
-    date: parsed.date?.toUTCString() || headerText(parsed, "date")
+    date: parsed.date?.toUTCString() || headerText(parsed, "date"),
+    "message-id": parsed.messageId || headerText(parsed, "message-id"),
+    "in-reply-to": headerText(parsed, "in-reply-to"),
+    references: Array.isArray(parsed.references)
+      ? parsed.references.join(" ")
+      : parsed.references || headerText(parsed, "references")
   };
 
   return {

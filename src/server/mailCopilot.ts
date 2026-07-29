@@ -17,11 +17,12 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
   const profileId = getActiveProfileId();
   const days = Math.max(1, Math.min(30, Number(options.days || 7)));
   const settings = getAppSettings();
+  const text = mailSyncText(settings.language);
   const after = new Date();
   after.setDate(after.getDate() - days);
 
   const progress: Progress = {
-    message: "Start cichego syncu ważnej poczty",
+    message: text.start,
     scannedMessages: 0,
     importantMessages: 0
   };
@@ -34,7 +35,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
     for (const account of listAccounts()) {
       try {
         progress.account = account.email;
-        progress.message = "Sprawdzam status już śledzonych wiadomości";
+        progress.message = text.checkingTracked;
         updateJob(jobId, { progress });
 
         const tracked = db
@@ -72,12 +73,12 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
           }
         }
 
-        progress.message = "Szukam ostatnich wiadomości";
+        progress.message = text.searchingRecent;
         updateJob(jobId, { progress });
 
         const query = `after:${formatGmailDate(after)} is:unread -category:promotions -category:social`;
         const ids = await listAccountMessageIds(account, query, count => {
-          progress.message = `Znaleziono ${count} ostatnich wiadomości`;
+          progress.message = text.foundRecent(count);
           updateJob(jobId, { progress });
         });
 
@@ -121,7 +122,8 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
             importantSenders: settings.importantSenders,
             importantCategories: settings.importantCategories,
             senderCategoryRules: settings.senderCategoryRules,
-            categoryRules: settings.categoryRules
+            categoryRules: settings.categoryRules,
+            language: settings.language
           });
           let classification = ruleClassification.classification;
           const shouldAskClassifier =
@@ -136,7 +138,8 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
                 snippet: message.snippet,
                 text,
                 importantSenders: settings.importantSenders,
-                importantCategories: settings.importantCategories
+                importantCategories: settings.importantCategories,
+                language: settings.language
               })) || classification;
             classification = guardClassification(classification, ruleClassification, {
               fromEmail: from.email,
@@ -185,7 +188,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
         }
         syncedAccounts += 1;
       } catch (error) {
-        const warning = describeAccountSyncError(account.email, error);
+        const warning = describeAccountSyncError(account.email, error, settings.language);
         accountWarnings.push(warning);
         progress.warning = accountWarnings.join(" ");
         progress.message = warning;
@@ -194,8 +197,8 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
     }
 
     if (accountWarnings.length && syncedAccounts === 0) {
-      progress.warning = summarizeAccountWarnings(accountWarnings);
-      progress.message = `Nie udało się odświeżyć żadnego konta Gmail. ${progress.warning}`;
+      progress.warning = summarizeAccountWarnings(accountWarnings, settings.language);
+      progress.message = text.noAccounts(progress.warning);
       updateJob(jobId, {
         status: "failed",
         finishedAt: new Date().toISOString(),
@@ -206,10 +209,10 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
     }
 
     if (accountWarnings.length) {
-      progress.warning = summarizeAccountWarnings(accountWarnings);
-      progress.message = `Sync zakończony. ${progress.warning}`;
+      progress.warning = summarizeAccountWarnings(accountWarnings, settings.language);
+      progress.message = text.doneWithWarnings(progress.warning);
     } else {
-      progress.message = "Sync ważnej poczty zakończony";
+      progress.message = text.done;
       delete progress.warning;
     }
 
@@ -227,6 +230,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
 export function getChatContext(question: string) {
   const like = `%${question.replace(/[%_]/g, " ").slice(0, 80)}%`;
   const profileId = getActiveProfileId();
+  const language = getAppSettings().language;
   const recentImportant = db
     .prepare(
       "SELECT from_email, from_name, subject, received_at, priority, category, summary, action_required, due_date, amount, currency FROM important_items WHERE profile_id = ? ORDER BY received_at DESC LIMIT 12"
@@ -241,7 +245,9 @@ export function getChatContext(question: string) {
     recentImportant,
     focusedMatches: textMatches,
     contextPolicy:
-      "recentImportant zawiera najważniejsze ostatnie wiadomości; focusedMatches to krótkie fragmenty pasujące do pytania. Odpowiadaj zwięźle."
+      language === "en"
+        ? "recentImportant contains the most important recent messages; focusedMatches are short excerpts matching the question. Answer concisely."
+        : "recentImportant zawiera najważniejsze ostatnie wiadomości; focusedMatches to krótkie fragmenty pasujące do pytania. Odpowiadaj zwięźle."
   };
 }
 
@@ -306,7 +312,9 @@ function classifyWithRules(input: {
     senderTerms: string[];
     keywordTerms: string[];
   }>;
+  language?: "pl" | "en";
 }) {
+  const text = ruleText(input.language || "pl");
   const manualSenderRule = input.senderCategoryRules.find(rule =>
     input.fromEmail.toLowerCase().includes(rule.sender.toLowerCase())
   );
@@ -315,8 +323,8 @@ function classifyWithRules(input: {
       classification: {
         priority: "high" as const,
         category: manualSenderRule.category,
-        summary: input.subject || "Wiadomość przypisana ręcznie do kategorii.",
-        action_required: "Sprawdź wiadomość od tego nadawcy.",
+        summary: input.subject || text.manualSummary,
+        action_required: text.manualAction,
         due_date: null,
         amount: null,
         currency: null
@@ -335,12 +343,12 @@ function classifyWithRules(input: {
     hasConfiguredRuleCue(haystack, input.categoryRules) ||
     hasHardImportantCue(haystack) ||
     hasConfiguredJobCue(haystack, input.importantCategories);
-  const match = clearNoise && !allowedNoiseCue ? null : configuredRuleMatch || findImportantCategory(haystack, input.importantCategories);
+  const match = clearNoise && !allowedNoiseCue ? null : configuredRuleMatch || findImportantCategory(haystack, input.importantCategories, input.language || "pl");
   const priority = senderImportant || match?.priority === "high" ? "high" : match?.priority === "medium" ? "medium" : "low";
   const classification: MailClassification = {
     priority,
-    category: match?.category || (senderImportant ? "maile od ważnych nadawców" : clearNoise ? "noise" : "other"),
-    summary: input.subject || "Wiadomość może wymagać uwagi.",
+    category: match?.category || (senderImportant ? text.importantSenderCategory : clearNoise ? "noise" : "other"),
+    summary: input.subject || text.defaultSummary,
     action_required: match?.actionRequired || "",
     due_date: null,
     amount: null,
@@ -401,12 +409,13 @@ function guardClassification(
   return classification;
 }
 
-function findImportantCategory(haystack: string, categories: string[]) {
+function findImportantCategory(haystack: string, categories: string[], language: "pl" | "en" = "pl") {
   const configured = categories.map(category => ({
     raw: category,
     normalized: normalize(category)
   }));
   const consumerOrderNoise = isConsumerOrderNoise(haystack);
+  const text = ruleText(language);
 
   const candidates = [
     {
@@ -414,20 +423,20 @@ function findImportantCategory(haystack: string, categories: string[]) {
       regex:
         /(service@paypal\.pl|d@citi\.com|paypal\.pl|citi\.com|przelewy24|payu|autopay|p24-|status swojej płatności|status swojej platnosci|transakcja płatnicza|transakcja platnicza|zlecenie płatności|zlecenie platnosci|przekazaliśmy twoją płatność|przekazalismy twoja platnosc|potwierdzenie płatności|potwierdzenie platnosci|payment status|payment confirmation)/i,
       priority: "high",
-      actionRequired: "Sprawdź płatność albo transakcję."
+      actionRequired: text.paymentAction
     },
     {
       hints: ["zamow", "zamów", "order", "allegro"],
       regex: /(powiadomienia@allegro\.pl|allegro\.pl|status zamówienia|status zamowienia|twoje zamówienie|twoje zamowienie|zamówienie nr|zamowienie nr)/i,
       priority: "high",
-      actionRequired: "Sprawdź status zamówienia."
+      actionRequired: text.orderAction
     },
     {
       hints: ["bank"],
       regex:
         /(\bmbank\b|santander|alior bank|bank pekao|pekao24|ing bank|millennium bank|nest bank|velobank|credit agricole|pko bank|inteligo|bnpparibas|kontakt@mbank\.pl|kontakt@bik\.pl|@[^ ]*bank|bank@)/i,
       priority: "high",
-      actionRequired: "Sprawdź komunikat bankowy."
+      actionRequired: text.bankAction
     },
     {
       hints: ["software", "setapp"],
@@ -452,7 +461,7 @@ function findImportantCategory(haystack: string, categories: string[]) {
       hints: ["zad", "task", "todo", "zadania"],
       regex: /(noreply@tm\.openai\.com|tm\.openai\.com|task|todo|reminder|przypomnienie o zadaniu|twoje zadanie)/i,
       priority: "high",
-      actionRequired: "Sprawdź, czy wymaga działania."
+      actionRequired: text.taskAction
     },
     {
       hints: ["rd", "ligmincha", "monroe", "3doors"],
@@ -472,20 +481,20 @@ function findImportantCategory(haystack: string, categories: string[]) {
       regex:
         /(\binvoice\b|faktura|rachunek|\breceipt\b|payment due|termin płatności|termin platnosci|platne do|płatne do|amount due|t-mobile|twoja faktura z firmy apple)/i,
       priority: "high",
-      actionRequired: "Sprawdź termin płatności lub archiwum faktur.",
+      actionRequired: text.invoiceAction,
       skip: consumerOrderNoise
     },
     {
       hints: ["ksieg", "księg", "podat", "accounting", "tax"],
       regex: /(infakt|księg|ksieg|accountant|składk|skladk|\bzus\b|podatek|\btax\b)/i,
       priority: "high",
-      actionRequired: "Sprawdź, czy wymaga odpowiedzi lub płatności."
+      actionRequired: text.accountingAction
     },
     {
       hints: ["media", "internet", "gaz", "prad", "prąd", "woda", "utilities"],
       regex: /(internet|energia|prąd|prad|gaz|woda|utilities|operator|faktura za|rachunek za)/i,
       priority: "high",
-      actionRequired: "Sprawdź termin płatności."
+      actionRequired: text.dueDateAction
     },
     {
       hints: ["licenc", "subskry", "subscription", "renewal", "commercial"],
@@ -505,13 +514,13 @@ function findImportantCategory(haystack: string, categories: string[]) {
       regex:
         /(alert bezpieczeństwa|alert bezpieczenstwa|security alert|wyzerowano hasło|wyzerowano haslo|hasło konta|haslo konta|password reset|konto google|konto apple|apple id|nowe logowanie|logowanie z nowego urządzenia|logowanie z nowego urzadzenia|new sign-in|suspicious activity|accounts\.google|id\.apple|gdpr|privacy|data processing|confirm your account)/i,
       priority: "high",
-      actionRequired: "Sprawdź, czy to znana aktywność."
+      actionRequired: text.securityAction
     },
     {
       hints: ["urzad", "urząd", "legal", "praw"],
       regex: /(\burząd\b|\burzad\b|\blegal\b|lawyer|prawnik|gov\.pl|e-?urząd|e-?urzad)/i,
       priority: "high",
-      actionRequired: "Sprawdź, czy wymaga odpowiedzi."
+      actionRequired: text.replyAction
     }
   ];
 
@@ -692,20 +701,90 @@ function formatGmailDate(date: Date) {
   return `${year}/${month}/${day}`;
 }
 
-function describeAccountSyncError(accountEmail: string, error: unknown) {
+function mailSyncText(language: "pl" | "en") {
+  if (language === "en") {
+    return {
+      start: "Starting quiet important-mail sync",
+      checkingTracked: "Checking status of already tracked messages",
+      searchingRecent: "Searching recent messages",
+      foundRecent: (count: number) => `Found ${count} recent messages`,
+      noAccounts: (warning: string) => `Could not refresh any Gmail account. ${warning}`,
+      doneWithWarnings: (warning: string) => `Sync finished. ${warning}`,
+      done: "Important-mail sync finished"
+    };
+  }
+  return {
+    start: "Start cichego syncu ważnej poczty",
+    checkingTracked: "Sprawdzam status już śledzonych wiadomości",
+    searchingRecent: "Szukam ostatnich wiadomości",
+    foundRecent: (count: number) => `Znaleziono ${count} ostatnich wiadomości`,
+    noAccounts: (warning: string) => `Nie udało się odświeżyć żadnego konta Gmail. ${warning}`,
+    doneWithWarnings: (warning: string) => `Sync zakończony. ${warning}`,
+    done: "Sync ważnej poczty zakończony"
+  };
+}
+
+function ruleText(language: "pl" | "en") {
+  if (language === "en") {
+    return {
+      manualSummary: "Message manually assigned to a category.",
+      manualAction: "Review the message from this sender.",
+      importantSenderCategory: "important senders",
+      defaultSummary: "Message may need attention.",
+      paymentAction: "Check the payment or transaction.",
+      orderAction: "Check order status.",
+      bankAction: "Check the banking message.",
+      taskAction: "Check whether this requires action.",
+      invoiceAction: "Check the payment due date or invoice archive.",
+      accountingAction: "Check whether this requires a reply or payment.",
+      dueDateAction: "Check the payment due date.",
+      securityAction: "Check whether this is known activity.",
+      replyAction: "Check whether this requires a reply."
+    };
+  }
+  return {
+    manualSummary: "Wiadomość przypisana ręcznie do kategorii.",
+    manualAction: "Sprawdź wiadomość od tego nadawcy.",
+    importantSenderCategory: "maile od ważnych nadawców",
+    defaultSummary: "Wiadomość może wymagać uwagi.",
+    paymentAction: "Sprawdź płatność albo transakcję.",
+    orderAction: "Sprawdź status zamówienia.",
+    bankAction: "Sprawdź komunikat bankowy.",
+    taskAction: "Sprawdź, czy wymaga działania.",
+    invoiceAction: "Sprawdź termin płatności lub archiwum faktur.",
+    accountingAction: "Sprawdź, czy wymaga odpowiedzi lub płatności.",
+    dueDateAction: "Sprawdź termin płatności.",
+    securityAction: "Sprawdź, czy to znana aktywność.",
+    replyAction: "Sprawdź, czy wymaga odpowiedzi."
+  };
+}
+
+function describeAccountSyncError(accountEmail: string, error: unknown, language: "pl" | "en" = "pl") {
   const message = error instanceof Error ? error.message : String(error);
   if (/\binvalid_grant\b/i.test(message)) {
+    if (language === "en") return `Account ${accountEmail} needs to be reconnected to Google.`;
     return `Konto ${accountEmail} wymaga ponownego podłączenia do Google.`;
   }
-  if (/^Timeout IMAP dla konta\b/i.test(message)) return message;
+  if (/^Timeout IMAP dla konta\b/i.test(message)) {
+    return language === "en"
+      ? `IMAP timeout for account ${accountEmail}. The mail server did not respond in time.`
+      : message;
+  }
+  if (language === "en") return `Could not refresh account ${accountEmail}: ${message}`;
   return `Nie udało się odświeżyć konta ${accountEmail}: ${message}`;
 }
 
-function summarizeAccountWarnings(warnings: string[]) {
+function summarizeAccountWarnings(warnings: string[], language: "pl" | "en" = "pl") {
   const reauthAccounts = warnings
-    .map(warning => warning.match(/^Konto\s+(.+?)\s+wymaga ponownego podłączenia do Google\.$/i)?.[1] || "")
+    .map(
+      warning =>
+        warning.match(/^Konto\s+(.+?)\s+wymaga ponownego podłączenia do Google\.$/i)?.[1] ||
+        warning.match(/^Account\s+(.+?)\s+needs to be reconnected to Google\.$/i)?.[1] ||
+        ""
+    )
     .filter(Boolean);
   if (reauthAccounts.length === warnings.length && reauthAccounts.length > 0) {
+    if (language === "en") return `Reconnect Gmail accounts in Settings > Gmail: ${reauthAccounts.join(", ")}.`;
     return `Ponownie podłącz konta Gmail w Ustawienia > Gmail: ${reauthAccounts.join(", ")}.`;
   }
   return warnings.join(" ");

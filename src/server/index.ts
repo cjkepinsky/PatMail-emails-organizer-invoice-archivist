@@ -59,6 +59,7 @@ import {
   isAccountMessageUnread,
   markAccountMessageRead,
   markAccountMessageUnread,
+  replyToAccountMessage,
   testImapAccount
 } from "./mailSource.js";
 import { runInvoiceBackfill } from "./invoiceScanner.js";
@@ -99,7 +100,7 @@ app.post("/api/profiles/active", (req, res) => {
     setActiveProfile(String(req.body?.id || ""));
     res.json(bootstrapPayload());
   } catch (error) {
-    res.status(404).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(404).json({ error: localizeKnownError(error, appLanguage()) });
   }
 });
 
@@ -125,6 +126,7 @@ app.post("/api/ui-state", (req, res) => {
 app.post("/api/settings", (req, res) => {
   const body = req.body || {};
   const current = getAppSettings();
+  const language = body.language === "en" ? "en" : current.language;
   const currentGoogleConfig = getGoogleOAuthConfig();
   const googleClientId = String(body.googleClientId || "").trim();
   const googleClientSecret =
@@ -136,7 +138,9 @@ app.post("/api/settings", (req, res) => {
   if (googleClientSecret.startsWith("sk-")) {
     return res.status(400).json({
       error:
-        "Pole Google Client Secret wygląda jak klucz OpenAI (sk-...). Wklej tutaj sekret klienta OAuth z Google Cloud, a token OpenAI wpisz w polu OpenAI API token."
+        language === "en"
+          ? "Google Client Secret looks like an OpenAI key (sk-...). Paste the OAuth client secret from Google Cloud here, and put the OpenAI token in the OpenAI API token field."
+          : "Pole Google Client Secret wygląda jak klucz OpenAI (sk-...). Wklej tutaj sekret klienta OAuth z Google Cloud, a token OpenAI wpisz w polu OpenAI API token."
     });
   }
 
@@ -187,15 +191,20 @@ app.get("/api/accounts", (_req, res) => {
 });
 
 app.post("/api/accounts/imap", async (req, res) => {
+  const language = getAppSettings().language;
   const email = String(req.body?.email || "").trim().toLowerCase();
   const host = String(req.body?.host || "imap.gmail.com").trim();
   const port = Number(req.body?.port || 993);
   const secure = req.body?.secure !== false;
   const password = String(req.body?.password || "");
 
-  if (!email) return res.status(400).json({ error: "Podaj adres e-mail konta Gmail." });
-  if (!password) return res.status(400).json({ error: "Podaj hasło aplikacji Gmail dla IMAP." });
-  if (!host) return res.status(400).json({ error: "Podaj host IMAP." });
+  if (!email) {
+    return res.status(400).json({ error: language === "en" ? "Enter the Gmail account email address." : "Podaj adres e-mail konta Gmail." });
+  }
+  if (!password) {
+    return res.status(400).json({ error: language === "en" ? "Enter the Gmail app password for IMAP." : "Podaj hasło aplikacji Gmail dla IMAP." });
+  }
+  if (!host) return res.status(400).json({ error: language === "en" ? "Enter the IMAP host." : "Podaj host IMAP." });
 
   try {
     const config = {
@@ -216,7 +225,7 @@ app.post("/api/accounts/imap", async (req, res) => {
     });
     res.json(publicAccounts());
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(400).json({ error: localizeKnownError(error, language) });
   }
 });
 
@@ -230,7 +239,7 @@ app.get("/api/auth/google/start", (_req, res) => {
     const url = getAuthUrl(randomUUID());
     res.redirect(url);
   } catch (error) {
-    res.status(400).send(error instanceof Error ? error.message : String(error));
+    res.status(400).send(localizeKnownError(error, appLanguage()));
   }
 });
 
@@ -245,9 +254,10 @@ app.get("/api/auth/google/callback", async (req, res) => {
       tokensJson: JSON.stringify(result.tokens),
       historyId: null
     });
-    res.send(`<!doctype html><html><body><script>location.href='${serverConfig.appOrigin}/?connected=1'</script>Połączono konto Gmail.</body></html>`);
+    const connectedMessage = appLanguage() === "en" ? "Gmail account connected." : "Połączono konto Gmail.";
+    res.send(`<!doctype html><html><body><script>location.href='${serverConfig.appOrigin}/?connected=1'</script>${connectedMessage}</body></html>`);
   } catch (error) {
-    res.status(500).send(error instanceof Error ? error.message : String(error));
+    res.status(500).send(localizeKnownError(error, appLanguage()));
   }
 });
 
@@ -277,7 +287,7 @@ app.post("/api/scan/important", (req, res) => {
 
 app.get("/api/jobs/:id", (req, res) => {
   const job = getJob(req.params.id);
-  if (!job) return res.status(404).json({ error: "Nie znaleziono zadania" });
+  if (!job) return res.status(404).json({ error: t(appLanguage(), "jobNotFound") });
   res.json(job);
 });
 
@@ -308,7 +318,8 @@ app.get("/api/mail-feed", (_req, res) => {
 
 app.get("/api/important/:id", (req, res) => {
   const row = getImportantItemDetail(req.params.id);
-  if (!row) return res.status(404).json({ error: "Nie znaleziono ważnego maila" });
+  const language = appLanguage();
+  if (!row) return res.status(404).json({ error: t(language, "importantMailNotFound") });
   const item = {
     id: String(row.id),
     accountId: String(row.account_id),
@@ -333,11 +344,12 @@ app.get("/api/important/:id", (req, res) => {
 });
 
 app.get("/api/mail/detail", async (req, res) => {
+  const language = appLanguage();
   const accountId = String(req.query.accountId || "");
   const messageId = String(req.query.messageId || "");
-  if (!accountId || !messageId) return res.status(400).json({ error: "Brakuje accountId albo messageId" });
+  if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
   let row = getMailItemDetail(accountId, messageId);
-  if (!row) return res.status(404).json({ error: "Nie znaleziono maila" });
+  if (!row) return res.status(404).json({ error: t(language, "mailNotFound") });
   let attachments: Array<{
     attachmentId: string;
     filename: string;
@@ -390,6 +402,7 @@ app.get("/api/mail/detail", async (req, res) => {
 });
 
 app.get("/api/mail/attachment", async (req, res) => {
+  const language = appLanguage();
   const accountId = String(req.query.accountId || "");
   const messageId = String(req.query.messageId || "");
   const attachmentId = String(req.query.attachmentId || "");
@@ -398,11 +411,11 @@ app.get("/api/mail/attachment", async (req, res) => {
   const download = String(req.query.download || "") === "1";
 
   if (!accountId || !messageId || !attachmentId) {
-    return res.status(400).json({ error: "Brakuje accountId, messageId albo attachmentId" });
+    return res.status(400).json({ error: t(language, "missingAttachmentParams") });
   }
 
   const account = getAccount(accountId);
-  if (!account) return res.status(404).json({ error: "Nie znaleziono konta pocztowego" });
+  if (!account) return res.status(404).json({ error: t(language, "mailAccountNotFound") });
 
   try {
     const buffer = await downloadAccountAttachment(account, messageId, attachmentId);
@@ -412,13 +425,39 @@ app.get("/api/mail/attachment", async (req, res) => {
     res.setHeader("Content-Disposition", `${disposition}; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.send(buffer);
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: localizeKnownError(error, language) });
+  }
+});
+
+app.post("/api/mail/reply", async (req, res) => {
+  const language = appLanguage();
+  const accountId = String(req.body?.accountId || "");
+  const messageId = String(req.body?.messageId || "");
+  const body = String(req.body?.body || "").trim();
+
+  if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
+  if (!body) return res.status(400).json({ error: t(language, "missingReplyBody") });
+
+  const account = getAccount(accountId);
+  if (!account) return res.status(404).json({ error: t(language, "mailAccountNotFound") });
+
+  try {
+    const result = await replyToAccountMessage(account, messageId, body.slice(0, 50_000));
+    res.json({
+      ok: true,
+      to: result.to,
+      subject: result.subject,
+      sentAt: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: localizeKnownError(error, language) });
   }
 });
 
 app.post("/api/important/:id/read", async (req, res) => {
+  const language = appLanguage();
   const item = getImportantItem(req.params.id);
-  if (!item) return res.status(404).json({ error: "Nie znaleziono ważnego maila" });
+  if (!item) return res.status(404).json({ error: t(language, "importantMailNotFound") });
 
   let gmailMarkedRead = false;
   let gmailError: string | null = null;
@@ -442,9 +481,12 @@ app.post("/api/important/:id/read", async (req, res) => {
 });
 
 app.post("/api/mail/read", async (req, res) => {
+  const language = getAppSettings().language;
   const accountId = String(req.body?.accountId || "");
   const messageId = String(req.body?.messageId || "");
-  if (!accountId || !messageId) return res.status(400).json({ error: "Brakuje accountId albo messageId" });
+  if (!accountId || !messageId) {
+    return res.status(400).json({ error: language === "en" ? "Missing accountId or messageId." : "Brakuje accountId albo messageId" });
+  }
 
   const snapshot = getReadOperationSnapshot(accountId, messageId);
   let gmailMarkedRead = false;
@@ -463,7 +505,7 @@ app.post("/api/mail/read", async (req, res) => {
   deleteImportantItemByMessage(accountId, messageId);
   const operation = createMailOperation({
     type: "mark-read",
-    label: `Oznaczono jako przeczytane: ${snapshot.subject}`,
+    label: language === "en" ? `Marked as read: ${snapshot.subject}` : `Oznaczono jako przeczytane: ${snapshot.subject}`,
     payload: { items: [snapshot] }
   });
   res.json({
@@ -479,6 +521,7 @@ app.post("/api/mail/read", async (req, res) => {
 });
 
 app.post("/api/mail/read-visible", async (req, res) => {
+  const language = getAppSettings().language;
   const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
   const seen = new Set<string>();
   const items: Array<{ accountId: string; messageId: string }> = rawItems
@@ -495,7 +538,9 @@ app.post("/api/mail/read-visible", async (req, res) => {
     })
     .slice(0, 50);
 
-  if (items.length === 0) return res.status(400).json({ error: "Brakuje widocznych maili do oznaczenia." });
+  if (items.length === 0) {
+    return res.status(400).json({ error: language === "en" ? "No visible mail to mark." : "Brakuje widocznych maili do oznaczenia." });
+  }
 
   const errors: string[] = [];
   let remoteMarkedRead = 0;
@@ -511,7 +556,7 @@ app.post("/api/mail/read-visible", async (req, res) => {
         errors.push(`${account.email}: ${error instanceof Error ? error.message : String(error)}`);
       }
     } else {
-      errors.push(`${item.accountId}: nie znaleziono konta pocztowego`);
+      errors.push(`${item.accountId}: ${t(language, "mailAccountNotFound")}`);
     }
 
     markMailCachedRead(item.accountId, item.messageId);
@@ -520,7 +565,10 @@ app.post("/api/mail/read-visible", async (req, res) => {
 
   const operation = createMailOperation({
     type: "mark-visible-read",
-    label: `Oznaczono ${items.length} widocznych maili jako przeczytane`,
+    label:
+      language === "en"
+        ? `Marked ${items.length} visible messages as read`
+        : `Oznaczono ${items.length} widocznych maili jako przeczytane`,
     payload: { items: snapshots }
   });
 
@@ -538,8 +586,9 @@ app.post("/api/mail/read-visible", async (req, res) => {
 });
 
 app.post("/api/operations/:id/undo", async (req, res) => {
+  const language = appLanguage();
   const operation = getMailOperation(req.params.id);
-  if (!operation) return res.status(404).json({ error: "Nie znaleziono operacji" });
+  if (!operation) return res.status(404).json({ error: t(language, "operationNotFound") });
   if (operation.status === "undone") {
     return res.json({
       ok: true,
@@ -551,7 +600,7 @@ app.post("/api/operations/:id/undo", async (req, res) => {
     });
   }
   if (operation.type !== "mark-read" && operation.type !== "mark-visible-read") {
-    return res.status(400).json({ error: "Tej operacji nie da się jeszcze cofnąć." });
+    return res.status(400).json({ error: t(language, "operationCannotUndo") });
   }
 
   const payload = parseReadOperationPayload(operation.payloadJson);
@@ -569,7 +618,7 @@ app.post("/api/operations/:id/undo", async (req, res) => {
           errors.push(`${account.email}: ${error instanceof Error ? error.message : String(error)}`);
         }
       } else {
-        errors.push(`${snapshot.accountId}: nie znaleziono konta pocztowego`);
+        errors.push(`${snapshot.accountId}: ${t(language, "mailAccountNotFound")}`);
       }
     }
 
@@ -590,10 +639,11 @@ app.post("/api/operations/:id/undo", async (req, res) => {
 });
 
 app.post("/api/mail/save", async (req, res) => {
+  const language = appLanguage();
   const accountId = String(req.body?.accountId || "");
   const messageId = String(req.body?.messageId || "");
   const saved = Boolean(req.body?.saved);
-  if (!accountId || !messageId) return res.status(400).json({ error: "Brakuje accountId albo messageId" });
+  if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
 
   let currentUnread: boolean | null = null;
   let gmailError: string | null = null;
@@ -628,10 +678,11 @@ app.post("/api/mail/save", async (req, res) => {
 });
 
 app.post("/api/mail/ignore", (req, res) => {
+  const language = appLanguage();
   const accountId = String(req.body?.accountId || "");
   const messageId = String(req.body?.messageId || "");
   const ignored = req.body?.ignored !== false;
-  if (!accountId || !messageId) return res.status(400).json({ error: "Brakuje accountId albo messageId" });
+  if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
 
   setMailIgnored(accountId, messageId, ignored);
   res.json({
@@ -647,7 +698,7 @@ app.get("/api/llm/status", async (_req, res) => {
   try {
     res.json(await getLlmStatus());
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: localizeKnownError(error, appLanguage()) });
   }
 });
 
@@ -655,7 +706,7 @@ app.get("/api/classifier/status", async (_req, res) => {
   try {
     res.json(await getClassifierStatus());
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: localizeKnownError(error, appLanguage()) });
   }
 });
 
@@ -664,9 +715,10 @@ app.get("/api/chat/history", (_req, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
+  const language = appLanguage();
   try {
     const question = String(req.body?.question || "").trim();
-    if (!question) return res.status(400).json({ error: "Wpisz pytanie do czatu." });
+    if (!question) return res.status(400).json({ error: t(language, "enterChatQuestion") });
     const previousChat = listChatHistory({ limit: 6, days: 7 }).map(turn => ({
       question: turn.question,
       answer: turn.answer,
@@ -684,7 +736,7 @@ app.post("/api/chat", async (req, res) => {
     });
     res.json({ answer, context, turn, chatHistory: listChatHistory() });
   } catch (error) {
-    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ error: localizeKnownError(error, language) });
   }
 });
 
@@ -821,6 +873,116 @@ function publicAccounts() {
     createdAt: account.createdAt,
     updatedAt: account.updatedAt
   }));
+}
+
+type UiLanguage = "pl" | "en";
+type ErrorKey =
+  | "jobNotFound"
+  | "importantMailNotFound"
+  | "mailNotFound"
+  | "missingAccountOrMessage"
+  | "missingAttachmentParams"
+  | "mailAccountNotFound"
+  | "operationNotFound"
+  | "operationCannotUndo"
+  | "enterChatQuestion"
+  | "missingReplyBody";
+
+function appLanguage(): UiLanguage {
+  return getAppSettings().language || "pl";
+}
+
+function t(language: UiLanguage, key: ErrorKey) {
+  const dictionary: Record<ErrorKey, { pl: string; en: string }> = {
+    jobNotFound: {
+      pl: "Nie znaleziono zadania",
+      en: "Job was not found."
+    },
+    importantMailNotFound: {
+      pl: "Nie znaleziono ważnego maila",
+      en: "Important mail was not found."
+    },
+    mailNotFound: {
+      pl: "Nie znaleziono maila",
+      en: "Mail was not found."
+    },
+    missingAccountOrMessage: {
+      pl: "Brakuje accountId albo messageId",
+      en: "Missing accountId or messageId."
+    },
+    missingAttachmentParams: {
+      pl: "Brakuje accountId, messageId albo attachmentId",
+      en: "Missing accountId, messageId, or attachmentId."
+    },
+    mailAccountNotFound: {
+      pl: "Nie znaleziono konta pocztowego",
+      en: "Mail account was not found."
+    },
+    operationNotFound: {
+      pl: "Nie znaleziono operacji",
+      en: "Operation was not found."
+    },
+    operationCannotUndo: {
+      pl: "Tej operacji nie da się jeszcze cofnąć.",
+      en: "This operation cannot be undone yet."
+    },
+    enterChatQuestion: {
+      pl: "Wpisz pytanie do czatu.",
+      en: "Enter a chat question."
+    },
+    missingReplyBody: {
+      pl: "Wpisz treść odpowiedzi.",
+      en: "Enter the reply body."
+    }
+  };
+  return dictionary[key][language];
+}
+
+function localizeKnownError(error: unknown, language: UiLanguage) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/insufficient authentication scopes|insufficientPermissions|gmail\.send/i.test(message)) {
+    return language === "en"
+      ? "This OAuth account needs to be reconnected with Gmail send permission (gmail.send). Reconnect it in Settings > Gmail and try again."
+      : "To konto OAuth wymaga ponownego podłączenia z uprawnieniem wysyłania Gmail (gmail.send). Podłącz je ponownie w Ustawienia > Gmail i spróbuj jeszcze raz.";
+  }
+  if (language !== "en") return message;
+
+  const replacements: Array<[RegExp, string | ((...matches: string[]) => string)]> = [
+    [
+      /^Pole Google Client Secret wygląda jak klucz OpenAI \(sk-\.\.\.\)\. Wklej tutaj sekret klienta OAuth z Google Cloud, a token OpenAI wpisz w polu OpenAI API token\.$/i,
+      "Google Client Secret looks like an OpenAI key (sk-...). Paste the OAuth client secret from Google Cloud here, and put the OpenAI token in the OpenAI API token field."
+    ],
+    [
+      /^Brakuje GOOGLE_CLIENT_ID albo GOOGLE_CLIENT_SECRET w konfiguracji aplikacji$/i,
+      "GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing in the app configuration."
+    ],
+    [/^Brakuje parametru code z Google OAuth$/i, "Missing Google OAuth code parameter."],
+    [/^Nie znaleziono profilu$/i, "Profile was not found."],
+    [/^Google nie zwrócił adresu email konta$/i, "Google did not return the account email address."],
+    [/^Załącznik nie zawiera danych$/i, "Attachment does not contain data."],
+    [/^Nie znaleziono załącznika$/i, "Attachment was not found."],
+    [/^Nie znaleziono wiadomości IMAP$/i, "IMAP message was not found."],
+    [/^Nieprawidłowy identyfikator wiadomości IMAP$/i, "Invalid IMAP message id."],
+    [/^Brakuje treści odpowiedzi\.$/i, "Enter the reply body."],
+    [/^Nie udało się ustalić adresata odpowiedzi\.$/i, "Could not determine the reply recipient."],
+    [/^Nieprawidłowy adres e-mail odpowiedzi\.$/i, "Invalid reply email address."],
+    [/^Brakuje hosta IMAP dla konta (.+)$/i, account => `Missing IMAP host for account ${account}.`],
+    [/^Brakuje użytkownika IMAP dla konta (.+)$/i, account => `Missing IMAP user for account ${account}.`],
+    [/^Brakuje hasła aplikacji IMAP dla konta (.+)$/i, account => `Missing IMAP app password for account ${account}.`],
+    [
+      /^Timeout IMAP dla konta (.+?)(?: podczas: .+)?\. Serwer poczty nie odpowiedział w czasie\.$/i,
+      account => `IMAP timeout for account ${account}. The mail server did not respond in time.`
+    ]
+  ];
+
+  let result = message;
+  for (const [pattern, replacement] of replacements) {
+    result = result.replace(pattern, (...args) => {
+      const matches = args.slice(1, -2).map(String);
+      return typeof replacement === "function" ? replacement(...matches) : replacement;
+    });
+  }
+  return result;
 }
 
 let autoImportantSyncStartedAt = 0;

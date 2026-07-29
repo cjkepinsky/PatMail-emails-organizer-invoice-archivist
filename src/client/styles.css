@@ -256,6 +256,14 @@ h2 {
   color: var(--text);
 }
 
+.icon-button {
+  width: 44px;
+  min-width: 44px;
+  padding: 0;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
 .button.accent {
   border-color: var(--accent);
   background: var(--accent);
@@ -720,6 +728,41 @@ small {
   gap: 12px;
 }
 
+.reply-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.reply-box-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reply-box h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+.reply-box small {
+  color: var(--muted-strong);
+}
+
+.reply-box textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.reply-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .pill {
   display: inline-flex;
   padding: 3px 8px;
@@ -839,8 +882,14 @@ small {
 }
 
 .imap-connect-form h3 {
-  grid-column: 1 / -1;
   margin: 0;
+}
+
+.form-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 .checkbox-label {
@@ -867,6 +916,28 @@ small {
   padding: 2px 6px;
   color: var(--label);
   font-size: 0.78rem;
+}
+
+.account-auth-badge.recommended {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.oauth-advanced {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.oauth-advanced summary {
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.oauth-config-form {
+  margin-top: 12px;
 }
 
 label {
@@ -1116,7 +1187,7 @@ textarea {
 
 table {
   width: 100%;
-  min-width: 820px;
+  min-width: 980px;
   border-collapse: collapse;
 }
 

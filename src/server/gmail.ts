@@ -46,6 +46,7 @@ export function getAuthUrl(state: string) {
     state,
     scope: [
       "https://www.googleapis.com/auth/gmail.modify",
+      "https://www.googleapis.com/auth/gmail.send",
       "https://www.googleapis.com/auth/userinfo.email"
     ]
   });
@@ -172,6 +173,19 @@ export async function isMessageUnread(gmail: gmail_v1.Gmail, messageId: string) 
     format: "minimal"
   });
   return Boolean(response.data.labelIds?.includes("UNREAD"));
+}
+
+export async function sendRawMessage(
+  gmail: gmail_v1.Gmail,
+  input: { raw: string; threadId?: string }
+) {
+  await gmail.users.messages.send({
+    userId: "me",
+    requestBody: {
+      raw: Buffer.from(input.raw, "utf8").toString("base64url"),
+      threadId: input.threadId || undefined
+    }
+  });
 }
 
 function collectParts(part: gmail_v1.Schema$MessagePart | undefined, output: ParsedGmailMessage) {

@@ -798,7 +798,7 @@ function initializeProfileDefaults(profileId: string, useLegacyFallback: boolean
   const settings: AppSettings = {
     archiveDir: read("archiveDir") || serverConfig.defaultArchiveDir,
     historyYears: Number(read("historyYears") || 4),
-    language: normalizeLanguage(read("language")),
+    language: normalizeLanguage(read("language"), systemDefaultLanguage()),
     themeMode: normalizeThemeMode(read("themeMode")),
     autoSyncEnabled: normalizeBooleanSetting(read("autoSyncEnabled"), false),
     autoSyncMinutes: normalizeAutoSyncMinutes(read("autoSyncMinutes")),
@@ -852,7 +852,7 @@ export function getAppSettings(): AppSettings {
   return {
     archiveDir: getSetting("archiveDir") || "",
     historyYears: Number(getSetting("historyYears") || 4),
-    language: normalizeLanguage(getSetting("language")),
+    language: normalizeLanguage(getSetting("language"), systemDefaultLanguage()),
     themeMode: normalizeThemeMode(getSetting("themeMode")),
     autoSyncEnabled: normalizeBooleanSetting(getSetting("autoSyncEnabled"), false),
     autoSyncMinutes: normalizeAutoSyncMinutes(getSetting("autoSyncMinutes")),
@@ -1035,8 +1035,22 @@ function normalizeThemeMode(value: unknown): AppSettings["themeMode"] {
   return "dark";
 }
 
-function normalizeLanguage(value: unknown): AppSettings["language"] {
-  return String(value || "").trim() === "en" ? "en" : "pl";
+function normalizeLanguage(value: unknown, fallback: AppSettings["language"] = "pl"): AppSettings["language"] {
+  const language = String(value || "").trim().toLowerCase();
+  if (language === "pl" || language.startsWith("pl-") || language.startsWith("pl_")) return "pl";
+  if (language === "en" || language.startsWith("en-") || language.startsWith("en_")) return "en";
+  return fallback;
+}
+
+function systemDefaultLanguage(): AppSettings["language"] {
+  const candidates = [
+    process.env.MAILBOT_LOCALE,
+    process.env.LC_ALL,
+    process.env.LC_MESSAGES,
+    process.env.LANG,
+    Intl.DateTimeFormat().resolvedOptions().locale
+  ];
+  return candidates.some(value => /^pl(?:[-_]|$)/i.test(String(value || "").trim())) ? "pl" : "en";
 }
 
 function normalizeClassifierTimeout(value: unknown) {

@@ -53,6 +53,7 @@ export async function runInvoiceBackfill(
   const startedAt = new Date().toISOString();
   const profileId = getActiveProfileId();
   const settings = getAppSettings();
+  const text = invoiceScanText(settings.language);
   const years = Math.max(1, Math.min(10, Number(options.years || settings.historyYears || 4)));
   const archiveDir = settings.archiveDir;
 
@@ -61,7 +62,7 @@ export async function runInvoiceBackfill(
       status: "failed",
       startedAt,
       finishedAt: new Date().toISOString(),
-      error: "Ustaw najpierw główny folder archiwum faktur."
+      error: text.missingArchiveDir
     });
     return;
   }
@@ -77,7 +78,7 @@ export async function runInvoiceBackfill(
   const afterQuery = formatGmailDate(after);
 
   const progress: ScanProgress = {
-    message: "Start skanowania historycznego",
+    message: text.start,
     scannedMessages: 0,
     savedInvoices: 0,
     skippedDuplicates: 0,
@@ -100,12 +101,12 @@ export async function runInvoiceBackfill(
         for (const provider of providers) {
           progress.account = account.email;
           progress.provider = provider.name;
-          progress.message = `Szukam wiadomości dla ${provider.name}`;
+          progress.message = text.searchingProvider(provider.name);
           updateJob(jobId, { progress });
 
           const query = buildProviderQuery(provider, afterQuery);
           const ids = await listAccountMessageIds(account, query, count => {
-            progress.message = `Znaleziono ${count} wiadomości dla ${provider.name}`;
+            progress.message = text.foundProvider(count, provider.name);
             updateJob(jobId, { progress });
           });
 
@@ -121,19 +122,19 @@ export async function runInvoiceBackfill(
           try {
             progress.account = account.email;
             progress.provider = provider.name;
-            progress.message = `Przetwarzam ${messageId}`;
+            progress.message = text.processing(messageId);
             updateJob(jobId, { progress });
             await processMessage(account, messageId, provider, archiveDir, progress, profileId);
           } catch (error) {
             progress.errors += 1;
-            progress.message = error instanceof Error ? error.message : "Błąd przetwarzania wiadomości";
+            progress.message = error instanceof Error ? error.message : text.processingError;
             updateJob(jobId, { progress });
           }
         }
 
         scannedAccounts += 1;
       } catch (error) {
-        const warning = describeAccountScanError(account.email, error);
+        const warning = describeAccountScanError(account.email, error, settings.language);
         accountWarnings.push(warning);
         progress.warning = accountWarnings.join(" ");
         progress.message = warning;
@@ -143,8 +144,8 @@ export async function runInvoiceBackfill(
     }
 
     if (accountWarnings.length && scannedAccounts === 0) {
-      progress.warning = summarizeAccountWarnings(accountWarnings);
-      progress.message = `Nie udało się zeskanować żadnego konta Gmail. ${progress.warning}`;
+      progress.warning = summarizeAccountWarnings(accountWarnings, settings.language);
+      progress.message = text.noAccounts(progress.warning);
       updateJob(jobId, {
         status: "failed",
         finishedAt: new Date().toISOString(),
@@ -155,10 +156,10 @@ export async function runInvoiceBackfill(
     }
 
     if (accountWarnings.length) {
-      progress.warning = summarizeAccountWarnings(accountWarnings);
-      progress.message = `Skanowanie zakończone. ${progress.warning}`;
+      progress.warning = summarizeAccountWarnings(accountWarnings, settings.language);
+      progress.message = text.doneWithWarnings(progress.warning);
     } else {
-      progress.message = "Skanowanie zakończone";
+      progress.message = text.done;
       delete progress.warning;
     }
 
@@ -554,20 +555,59 @@ function formatGmailDate(date: Date) {
   return `${year}/${month}/${day}`;
 }
 
-function describeAccountScanError(accountEmail: string, error: unknown) {
+function invoiceScanText(language: "pl" | "en") {
+  if (language === "en") {
+    return {
+      missingArchiveDir: "Set the main invoice archive folder first.",
+      start: "Starting historical invoice scan",
+      searchingProvider: (provider: string) => `Searching messages for ${provider}`,
+      foundProvider: (count: number, provider: string) => `Found ${count} messages for ${provider}`,
+      processing: (messageId: string) => `Processing ${messageId}`,
+      processingError: "Message processing error",
+      noAccounts: (warning: string) => `Could not scan any Gmail account. ${warning}`,
+      doneWithWarnings: (warning: string) => `Scan finished. ${warning}`,
+      done: "Scan finished"
+    };
+  }
+  return {
+    missingArchiveDir: "Ustaw najpierw główny folder archiwum faktur.",
+    start: "Start skanowania historycznego",
+    searchingProvider: (provider: string) => `Szukam wiadomości dla ${provider}`,
+    foundProvider: (count: number, provider: string) => `Znaleziono ${count} wiadomości dla ${provider}`,
+    processing: (messageId: string) => `Przetwarzam ${messageId}`,
+    processingError: "Błąd przetwarzania wiadomości",
+    noAccounts: (warning: string) => `Nie udało się zeskanować żadnego konta Gmail. ${warning}`,
+    doneWithWarnings: (warning: string) => `Skanowanie zakończone. ${warning}`,
+    done: "Skanowanie zakończone"
+  };
+}
+
+function describeAccountScanError(accountEmail: string, error: unknown, language: "pl" | "en" = "pl") {
   const message = error instanceof Error ? error.message : String(error);
   if (/\binvalid_grant\b/i.test(message)) {
+    if (language === "en") return `Account ${accountEmail} needs to be reconnected to Google.`;
     return `Konto ${accountEmail} wymaga ponownego podłączenia do Google.`;
   }
-  if (/^Timeout IMAP dla konta\b/i.test(message)) return message;
+  if (/^Timeout IMAP dla konta\b/i.test(message)) {
+    return language === "en"
+      ? `IMAP timeout for account ${accountEmail}. The mail server did not respond in time.`
+      : message;
+  }
+  if (language === "en") return `Could not scan account ${accountEmail}: ${message}`;
   return `Nie udało się zeskanować konta ${accountEmail}: ${message}`;
 }
 
-function summarizeAccountWarnings(warnings: string[]) {
+function summarizeAccountWarnings(warnings: string[], language: "pl" | "en" = "pl") {
   const reauthAccounts = warnings
-    .map(warning => warning.match(/^Konto\s+(.+?)\s+wymaga ponownego podłączenia do Google\.$/i)?.[1] || "")
+    .map(
+      warning =>
+        warning.match(/^Konto\s+(.+?)\s+wymaga ponownego podłączenia do Google\.$/i)?.[1] ||
+        warning.match(/^Account\s+(.+?)\s+needs to be reconnected to Google\.$/i)?.[1] ||
+        ""
+    )
     .filter(Boolean);
   if (reauthAccounts.length === warnings.length && reauthAccounts.length > 0) {
+    if (language === "en") return `Reconnect Gmail accounts in Settings > Gmail: ${reauthAccounts.join(", ")}.`;
     return `Ponownie podłącz konta Gmail w Ustawienia > Gmail: ${reauthAccounts.join(", ")}.`;
   }
   return warnings.join(" ");

@@ -5,7 +5,8 @@ import {
   isMessageUnread,
   listMessageIds,
   markMessageRead,
-  markMessageUnread
+  markMessageUnread,
+  sendRawMessage
 } from "./gmail.js";
 import {
   downloadImapAttachment,
@@ -14,8 +15,11 @@ import {
   listImapMessageIds,
   markImapMessageRead,
   markImapMessageUnread,
+  parseImapConfig,
   verifyImapConfig
 } from "./imap.js";
+import { buildReplyMessage } from "./mailReply.js";
+import { sendSmtpMail, smtpHostForImapHost } from "./smtp.js";
 import type { GmailAccount, ImapAccountConfig } from "./types.js";
 
 export async function listAccountMessageIds(
@@ -54,6 +58,38 @@ export async function markAccountMessageUnread(account: GmailAccount, messageId:
 export async function isAccountMessageUnread(account: GmailAccount, messageId: string) {
   if (account.authType === "imap") return isImapMessageUnread(account, messageId);
   return isMessageUnread(gmailForAccount(account), messageId);
+}
+
+export async function replyToAccountMessage(account: GmailAccount, messageId: string, body: string) {
+  const original = await getAccountParsedMessage(account, messageId);
+  const reply = buildReplyMessage({
+    accountEmail: account.email,
+    original,
+    body
+  });
+
+  if (account.authType === "imap") {
+    const config = parseImapConfig(account);
+    await sendSmtpMail({
+      host: smtpHostForImapHost(config.host),
+      port: 465,
+      username: config.user,
+      password: config.password,
+      fromEmail: config.user,
+      toEmail: reply.toEmail,
+      rawMessage: reply.raw
+    });
+  } else {
+    await sendRawMessage(gmailForAccount(account), {
+      raw: reply.raw,
+      threadId: reply.threadId
+    });
+  }
+
+  return {
+    to: reply.toEmail,
+    subject: reply.subject
+  };
 }
 
 export async function testImapAccount(config: ImapAccountConfig) {

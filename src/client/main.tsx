@@ -166,6 +166,7 @@ const TEXT = {
     profileDescription:
       "Profil obejmuje ustawienia, reguły, konta Gmail, dostawców faktur, indeks faktur i lokalny stan poczty.",
     mail: "Poczta",
+    archivizer: "Archivizer",
     changeHistory: "Historia zmian",
     settings: "Ustawienia",
     scanInvoices: "Skanuj faktury",
@@ -193,6 +194,11 @@ const TEXT = {
     autoSyncHelp:
       "Auto-sync działa spokojnie w tle po stronie aplikacji, nie uruchamia kolejnego przebiegu, jeśli poprzedni jeszcze trwa, i domyślnie dotyczy tylko sekcji „Teraz ważne”.",
     oauthSavedLocally: "Dane OAuth Google są zapisywane lokalnie w folderze aplikacji, a nie w pamięci przeglądarki.",
+    oauthAdvanced: "Google OAuth, opcjonalne",
+    oauthOptionalHelp:
+      "OAuth jest opcjonalny. Używaj go tylko wtedy, gdy chcesz logować skrzynki przez przeglądarkę i masz własny klient OAuth w Google Cloud.",
+    oauthMissingConfig: "Najpierw zapisz Google Client ID i Client Secret, żeby włączyć podłączanie przez OAuth.",
+    imapRecommended: "Rekomendowane",
     invoiceArchiveFolder: "Folder archiwum faktur",
     historicalScan: "Historyczny skan",
     openAiToken: "OpenAI API token",
@@ -213,7 +219,7 @@ const TEXT = {
       "Najpierw działają ręczne klasyfikacje nadawców, potem reguły z zakładki Reguły, dalej fallbacki wbudowane w aplikację, a dopiero na końcu model. Format: nadawca => kategoria.",
     saveSettings: "Zapisz ustawienia",
     connectOAuth: "Podłącz przez Google OAuth",
-    oauthImapHelp: "OAuth zostaje dostępny, a IMAP omija 7-dniowe wygasanie trybu testowego Google.",
+    oauthImapHelp: "IMAP jest domyślną ścieżką i nie wymaga Google Client ID ani konfiguracji Google Cloud.",
     connectImap: "Podłącz przez IMAP",
     gmailAddress: "Adres Gmail",
     gmailAddressPlaceholder: "twoje.konto@gmail.com",
@@ -224,7 +230,7 @@ const TEXT = {
     useSsl: "Użyj SSL/TLS",
     checking: "Sprawdzam...",
     gmail2faHelp: "Dla Gmaila z 2FA użyj hasła aplikacji Google, nie głównego hasła do konta.",
-    connectAccountsHelp: "Podłącz konta przez IMAP albo Google OAuth. Możesz dodać 4-5 skrzynek po kolei.",
+    connectAccountsHelp: "Podłącz konta przez IMAP. OAuth jest dostępny niżej jako opcja zaawansowana.",
     disconnect: "Odłącz",
     classificationRules: "Reguły klasyfikacji",
     rulesHelp:
@@ -297,6 +303,11 @@ const TEXT = {
     attachments: "Załączniki",
     open: "Otwórz",
     download: "Pobierz",
+    reply: "Odpowiedz",
+    replyHint: "Odpowiedź zostanie wysłana z tej samej skrzynki, na którą przyszedł wybrany mail.",
+    replyPlaceholder: "Napisz odpowiedź...",
+    sendReply: "Wyślij odpowiedź",
+    sendingReply: "Wysyłam...",
     pickMail: "Wybierz mail po lewej, żeby zobaczyć treść.",
     mailboxChat: "Chat ze skrzynką",
     chatWindowInfo: "ostatnie 10 z 7 dni",
@@ -308,6 +319,7 @@ const TEXT = {
     recentInvoices: "Ostatnie faktury",
     collapse: "Zwiń",
     show: "Pokaż",
+    scanDate: "Data skanowania",
     month: "Miesiąc",
     domain: "Domena",
     amount: "Kwota",
@@ -332,6 +344,7 @@ const TEXT = {
     profileDescription:
       "A profile includes settings, rules, Gmail accounts, invoice providers, the invoice index, and local mailbox state.",
     mail: "Mail",
+    archivizer: "Archivizer",
     changeHistory: "Change history",
     settings: "Settings",
     scanInvoices: "Scan invoices",
@@ -359,6 +372,11 @@ const TEXT = {
     autoSyncHelp:
       "Auto-sync runs quietly in the background, does not start another run while one is still active, and by default only updates the Important now section.",
     oauthSavedLocally: "Google OAuth data is stored locally in the app folder, not in browser storage.",
+    oauthAdvanced: "Google OAuth, optional",
+    oauthOptionalHelp:
+      "OAuth is optional. Use it only if you want browser-based mailbox authorization and you have your own OAuth client in Google Cloud.",
+    oauthMissingConfig: "Save Google Client ID and Client Secret first to enable OAuth account connection.",
+    imapRecommended: "Recommended",
     invoiceArchiveFolder: "Invoice archive folder",
     historicalScan: "Historical scan",
     openAiToken: "OpenAI API token",
@@ -378,7 +396,7 @@ const TEXT = {
       "Manual sender classifications run first, then Rules tab rules, then built-in fallbacks, and finally the model. Format: sender => category.",
     saveSettings: "Save settings",
     connectOAuth: "Connect with Google OAuth",
-    oauthImapHelp: "OAuth remains available, while IMAP avoids the 7-day expiration of Google's testing mode.",
+    oauthImapHelp: "IMAP is the default path and does not require Google Client ID or Google Cloud setup.",
     connectImap: "Connect with IMAP",
     gmailAddress: "Gmail address",
     gmailAddressPlaceholder: "your.account@gmail.com",
@@ -389,7 +407,7 @@ const TEXT = {
     useSsl: "Use SSL/TLS",
     checking: "Checking...",
     gmail2faHelp: "For Gmail with 2FA, use a Google app password, not the main account password.",
-    connectAccountsHelp: "Connect accounts through IMAP or Google OAuth. You can add 4-5 mailboxes one by one.",
+    connectAccountsHelp: "Connect accounts through IMAP. OAuth is available below as an advanced option.",
     disconnect: "Disconnect",
     classificationRules: "Classification rules",
     rulesHelp:
@@ -462,6 +480,11 @@ const TEXT = {
     attachments: "Attachments",
     open: "Open",
     download: "Download",
+    reply: "Reply",
+    replyHint: "The reply will be sent from the same mailbox that received the selected message.",
+    replyPlaceholder: "Write a reply...",
+    sendReply: "Send reply",
+    sendingReply: "Sending...",
     pickMail: "Select a message on the left to see its content.",
     mailboxChat: "Mailbox chat",
     chatWindowInfo: "last 10 from 7 days",
@@ -473,6 +496,7 @@ const TEXT = {
     recentInvoices: "Recent invoices",
     collapse: "Collapse",
     show: "Show",
+    scanDate: "Scan date",
     month: "Month",
     domain: "Domain",
     amount: "Amount",
@@ -524,6 +548,8 @@ function App() {
   const [selectedImportantId, setSelectedImportantId] = useState("");
   const [shouldRevealSelectedMail, setShouldRevealSelectedMail] = useState(false);
   const [selectedImportant, setSelectedImportant] = useState<ImportantDetail | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySending, setReplySending] = useState(false);
   const [bulkReadRunning, setBulkReadRunning] = useState(false);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [status, setStatus] = useState("");
@@ -531,8 +557,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState("");
-  const [activeView, setActiveView] = useState<"mail" | "operations">("mail");
-  const [invoicesExpanded, setInvoicesExpanded] = useState(false);
+  const [activeView, setActiveView] = useState<"mail" | "archivizer" | "operations">("mail");
+  const [invoicesExpanded, setInvoicesExpanded] = useState(true);
   const [imapForm, setImapForm] = useState({
     email: "",
     password: "",
@@ -549,8 +575,9 @@ function App() {
   const accountEmailById = useMemo(() => {
     return new Map(accounts.map(account => [account.id, account.email]));
   }, [accounts]);
-  const language = settings?.language || "pl";
+  const language = settings?.language || browserDefaultLanguage();
   const t = TEXT[language];
+  const oauthConfigured = Boolean(settings?.googleClientId.trim() && settings?.googleClientSecret.trim());
 
   async function load() {
     const data = await api("/api/bootstrap");
@@ -652,6 +679,14 @@ function App() {
       return null;
     }
   }, [activeJob]);
+
+  const sortedInvoices = useMemo(() => {
+    return [...invoices].sort((left, right) => {
+      const leftTime = new Date(left.created_at).getTime();
+      const rightTime = new Date(right.created_at).getTime();
+      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+    });
+  }, [invoices]);
 
   const importantCategories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -773,6 +808,11 @@ function App() {
     };
   }, [selectedImportantId]);
 
+  useEffect(() => {
+    setReplyText("");
+    setReplySending(false);
+  }, [selectedImportantId]);
+
   const selectedImportantBodyHtml = useMemo(() => {
     if (!selectedImportant) return "";
     return buildReadableMailHtml(selectedImportant.html, selectedImportant.text || selectedImportant.snippet, t);
@@ -849,7 +889,7 @@ function App() {
           : `Aktywny profil: ${data.activeProfile?.name || "wybrany profil"}.`
       );
     } catch (error) {
-      setStatus(apiErrorMessage(error));
+      setStatus(apiErrorMessage(error, language));
     } finally {
       setProfileBusy(false);
     }
@@ -875,7 +915,7 @@ function App() {
           : `Utworzono profil: ${data.activeProfile?.name || "Nowy profil"}.`
       );
     } catch (error) {
-      setStatus(apiErrorMessage(error));
+      setStatus(apiErrorMessage(error, language));
     } finally {
       setProfileBusy(false);
     }
@@ -966,7 +1006,7 @@ function App() {
           : `Oznaczono ${response.markedRead || items.length} widocznych maili jako przeczytane. Możesz cofnąć to w historii operacji.`
       );
     } catch (error) {
-      setStatus(apiErrorMessage(error));
+      setStatus(apiErrorMessage(error, language));
     } finally {
       setBulkReadRunning(false);
     }
@@ -992,7 +1032,7 @@ function App() {
           : `Cofnięto operację: ${operation.label}.`
       );
     } catch (error) {
-      setStatus(apiErrorMessage(error));
+      setStatus(apiErrorMessage(error, language));
     } finally {
       setOperationUndoingId("");
     }
@@ -1071,10 +1111,43 @@ function App() {
       });
       setChatHistory(result.chatHistory || []);
     } catch (error) {
-      setStatus(apiErrorMessage(error));
+      setStatus(apiErrorMessage(error, language));
       setQuestion(askedQuestion);
     } finally {
       setChatPendingQuestion("");
+    }
+  }
+
+  async function sendReply(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedImportant || replySending) return;
+    const body = replyText.trim();
+    if (!body) {
+      setStatus(language === "en" ? "Write a reply before sending." : "Napisz treść odpowiedzi przed wysłaniem.");
+      return;
+    }
+
+    setReplySending(true);
+    setStatus(language === "en" ? "Sending reply..." : "Wysyłam odpowiedź...");
+    try {
+      const result = await api("/api/mail/reply", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: selectedImportant.accountId,
+          messageId: selectedImportant.messageId,
+          body
+        })
+      }) as { to: string; subject: string };
+      setReplyText("");
+      setStatus(
+        language === "en"
+          ? `Reply sent to ${result.to}.`
+          : `Odpowiedź wysłana do ${result.to}.`
+      );
+    } catch (error) {
+      setStatus(apiErrorMessage(error, language));
+    } finally {
+      setReplySending(false);
     }
   }
 
@@ -1104,7 +1177,7 @@ function App() {
       setStatus(language === "en" ? "IMAP account connected." : "Konto IMAP podłączone.");
       setToast(language === "en" ? "IMAP account connected successfully." : "Konto IMAP podłączone poprawnie.");
     } catch (error) {
-      const message = apiErrorMessage(error);
+      const message = apiErrorMessage(error, language);
       setStatus(message);
       setToast(message);
     } finally {
@@ -1273,21 +1346,33 @@ function App() {
             {t.mail}
           </button>
           <button
+            className={`button ${activeView === "archivizer" ? "accent" : "secondary"}`}
+            onClick={() => setActiveView("archivizer")}
+            type="button"
+          >
+            {t.archivizer}
+          </button>
+          <button
             className={`button ${activeView === "operations" ? "accent" : "secondary"}`}
             onClick={() => setActiveView("operations")}
             type="button"
           >
             {t.changeHistory}{operations.length > 0 ? ` (${operations.length})` : ""}
           </button>
-          <button className="button secondary" onClick={() => setSettingsOpen(true)}>
-            {t.settings}
+          <button
+            aria-label={t.settings}
+            className="button secondary icon-button"
+            onClick={() => setSettingsOpen(true)}
+            title={t.settings}
+            type="button"
+          >
+            <span aria-hidden="true">⚙</span>
           </button>
-          <button className="button" onClick={startInvoiceScan}>
-            {t.scanInvoices}
-          </button>
-          <button className="button accent" onClick={startImportantSync}>
-            {t.refreshImportant}
-          </button>
+          {activeView === "mail" && (
+            <button className="button accent" onClick={startImportantSync}>
+              {t.refreshImportant}
+            </button>
+          )}
         </div>
       </section>
 
@@ -1404,30 +1489,6 @@ function App() {
 	                    />
 	                  </label>
 	                  <p className="muted full">{t.autoSyncHelp}</p>
-	                  <label>
-	                    Google Client ID
-	                    <input
-	                      value={settings.googleClientId}
-	                      onChange={event => setSettings({ ...settings, googleClientId: event.target.value })}
-	                    />
-	                  </label>
-	                  <label>
-	                    Google Redirect URI
-	                    <input
-	                      value={settings.googleRedirectUri}
-	                      onChange={event => setSettings({ ...settings, googleRedirectUri: event.target.value })}
-	                    />
-	                  </label>
-	                  <label className="full">
-	                    Google Client Secret
-	                    <input
-	                      type="password"
-	                      value={settings.googleClientSecret}
-	                      onChange={event => setSettings({ ...settings, googleClientSecret: event.target.value })}
-	                      placeholder={settings.googleClientSecret ? "configured" : ""}
-	                    />
-	                  </label>
-	                  <p className="muted full">{t.oauthSavedLocally}</p>
 	                  <label>
 	                    {t.invoiceArchiveFolder}
 	                    <input
@@ -1556,14 +1617,12 @@ function App() {
 	                  <h2>{t.gmailAccounts}</h2>
 	                  <span>{accounts.length}</span>
 	                </div>
-	                <div className="account-connect-actions">
-	                  <a className="button secondary" href="/api/auth/google/start">
-	                    {t.connectOAuth}
-	                  </a>
-	                  <span className="muted">{t.oauthImapHelp}</span>
-	                </div>
 	                <form className="imap-connect-form" onSubmit={connectImapAccount}>
-	                  <h3>{t.connectImap}</h3>
+	                  <div className="form-heading full">
+	                    <h3>{t.connectImap}</h3>
+	                    <span className="account-auth-badge recommended">{t.imapRecommended}</span>
+	                  </div>
+	                  <p className="muted full">{t.oauthImapHelp}</p>
 	                  <label>
 	                    {t.gmailAddress}
 	                    <input
@@ -1613,6 +1672,51 @@ function App() {
 	                  </button>
 	                  <p className="muted full">{t.gmail2faHelp}</p>
 	                </form>
+	                <details className="oauth-advanced">
+	                  <summary>{t.oauthAdvanced}</summary>
+	                  <p className="muted">{t.oauthOptionalHelp}</p>
+	                  <form className="settings-form oauth-config-form" onSubmit={saveSettings}>
+	                    <label>
+	                      Google Client ID
+	                      <input
+	                        value={settings.googleClientId}
+	                        onChange={event => setSettings({ ...settings, googleClientId: event.target.value })}
+	                      />
+	                    </label>
+	                    <label>
+	                      Google Redirect URI
+	                      <input
+	                        value={settings.googleRedirectUri}
+	                        onChange={event => setSettings({ ...settings, googleRedirectUri: event.target.value })}
+	                      />
+	                    </label>
+	                    <label className="full">
+	                      Google Client Secret
+	                      <input
+	                        type="password"
+	                        value={settings.googleClientSecret}
+	                        onChange={event => setSettings({ ...settings, googleClientSecret: event.target.value })}
+	                        placeholder={settings.googleClientSecret ? "configured" : ""}
+	                      />
+	                    </label>
+	                    <p className="muted full">{t.oauthSavedLocally}</p>
+	                    <div className="modal-actions full">
+	                      <button className="button" type="submit">
+	                        {t.saveSettings}
+	                      </button>
+	                      {oauthConfigured ? (
+	                        <a className="button secondary" href="/api/auth/google/start">
+	                          {t.connectOAuth}
+	                        </a>
+	                      ) : (
+	                        <button className="button secondary" disabled type="button">
+	                          {t.connectOAuth}
+	                        </button>
+	                      )}
+	                    </div>
+	                    {!oauthConfigured && <p className="muted full">{t.oauthMissingConfig}</p>}
+	                  </form>
+	                </details>
 	                {accounts.length === 0 ? (
 	                  <p className="muted">{t.connectAccountsHelp}</p>
 	                ) : (
@@ -1866,17 +1970,17 @@ function App() {
 
       {(status || activeJob) && (
         <section className="status-stack">
-          {status && <div className="status-strip">{status}</div>}
+          {status && <div className="status-strip">{localizeServerMessage(status, language)}</div>}
           {activeJob && (
             <section className="job-strip">
               <strong>{formatJobStatus(activeJob.status, language)}</strong>
-              <span>{progress?.message || t.working}</span>
+              <span>{localizeServerMessage(progress?.message || t.working, language)}</span>
               {progress && (
                 <span>
                   {t.mails}: {progress.scannedMessages || 0} · {t.invoices}: {progress.savedInvoices || 0} · {t.duplicates}: {progress.skippedDuplicates || 0}
                 </span>
               )}
-              {activeJob.error && <span className="error">{activeJob.error}</span>}
+              {activeJob.error && <span className="error">{localizeServerMessage(activeJob.error, language)}</span>}
             </section>
           )}
         </section>
@@ -1904,7 +2008,7 @@ function App() {
               {operations.map(operation => (
                 <li key={operation.id} className={operation.status === "undone" ? "operation-undone" : ""}>
                   <div>
-                    <strong>{operation.label}</strong>
+                    <strong>{localizeServerMessage(operation.label, language)}</strong>
                     <small>
                       {formatDateTime(operation.createdAt, language)}
                       {operation.status === "undone" ? ` · ${t.undone}${operation.undoneAt ? ` ${formatDateTime(operation.undoneAt, language)}` : ""}` : ""}
@@ -1922,6 +2026,58 @@ function App() {
                 </li>
               ))}
             </ul>
+          )}
+        </section>
+      ) : activeView === "archivizer" ? (
+        <section className="panel archivizer-view">
+          <div className="section-title">
+            <h2>{t.recentInvoices}</h2>
+            <div className="top-actions">
+              <span>{invoices.length}</span>
+              <button className="small-button" onClick={() => setInvoicesExpanded(current => !current)} type="button">
+                {invoicesExpanded ? t.collapse : t.show}
+              </button>
+              <button className="button accent" onClick={startInvoiceScan} type="button">
+                {t.scanInvoices}
+              </button>
+            </div>
+          </div>
+          {invoicesExpanded ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t.scanDate}</th>
+                    <th>{t.month}</th>
+                    <th>{t.domain}</th>
+                    <th>{t.due}</th>
+                    <th>{t.amount}</th>
+                    <th>{t.status}</th>
+                    <th>{t.file}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedInvoices.map(invoice => (
+                    <tr key={invoice.id}>
+                      <td>{formatDateTime(invoice.created_at, language)}</td>
+                      <td>{invoice.invoice_month}</td>
+                      <td>{invoice.provider_domain}</td>
+                      <td>{invoice.due_date || "-"}</td>
+                      <td>{invoice.amount ? `${invoice.amount} ${invoice.currency || ""}` : "-"}</td>
+                      <td>{invoice.status}</td>
+                      <td title={invoice.file_path}>{shortPath(invoice.file_path)}</td>
+                    </tr>
+                  ))}
+                  {sortedInvoices.length === 0 && (
+                    <tr>
+                      <td colSpan={7}>{t.invoiceEmpty}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted">{t.invoiceListCollapsed}</p>
           )}
         </section>
       ) : (
@@ -1973,8 +2129,8 @@ function App() {
                     >
                       <div>
                         <strong>{item.fromName || item.fromEmail}</strong>
-                        <p>{item.summary || item.subject}</p>
-                        {item.actionRequired && <small>{item.actionRequired}</small>}
+                        <p>{localizeServerMessage(item.summary || item.subject, language)}</p>
+                        {item.actionRequired && <small>{localizeServerMessage(item.actionRequired, language)}</small>}
                       </div>
                       <div className="feed-meta">
                         <span className="feed-date">{formatDateTime(item.receivedAt, language)}</span>
@@ -2060,7 +2216,7 @@ function App() {
                     </div>
                   </div>
                   {selectedImportant.actionRequired && (
-                    <p className="preview-action">{selectedImportant.actionRequired}</p>
+                    <p className="preview-action">{localizeServerMessage(selectedImportant.actionRequired, language)}</p>
                   )}
                   {selectedImportant.attachments.length > 0 && (
                     <section className="mail-attachments">
@@ -2102,6 +2258,30 @@ function App() {
                     className="mail-body mail-body-reader"
                     dangerouslySetInnerHTML={{ __html: selectedImportantBodyHtml }}
                   />
+                  <form className="reply-box" onSubmit={sendReply}>
+                    <div className="reply-box-header">
+                      <div>
+                        <h4>{t.reply}</h4>
+                        <small>{t.replyHint}</small>
+                      </div>
+                    </div>
+                    <textarea
+                      disabled={replySending}
+                      onChange={event => setReplyText(event.target.value)}
+                      placeholder={t.replyPlaceholder}
+                      rows={5}
+                      value={replyText}
+                    />
+                    <div className="reply-actions">
+                      <button
+                        className="button accent"
+                        disabled={replySending || !replyText.trim()}
+                        type="submit"
+                      >
+                        {replySending ? t.sendingReply : t.sendReply}
+                      </button>
+                    </div>
+                  </form>
                 </>
               ) : (
                 <p className="muted">{t.pickMail}</p>
@@ -2148,52 +2328,6 @@ function App() {
         </div>
       </section>
 
-      <section className="panel">
-        <div className="section-title">
-          <h2>{t.recentInvoices}</h2>
-          <div className="top-actions">
-            <span>{invoices.length}</span>
-            <button className="small-button" onClick={() => setInvoicesExpanded(current => !current)} type="button">
-              {invoicesExpanded ? t.collapse : t.show}
-            </button>
-          </div>
-        </div>
-        {invoicesExpanded ? (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>{t.month}</th>
-                  <th>{t.domain}</th>
-                  <th>{t.due}</th>
-                  <th>{t.amount}</th>
-                  <th>{t.status}</th>
-                  <th>{t.file}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map(invoice => (
-                  <tr key={invoice.id}>
-                    <td>{invoice.invoice_month}</td>
-                    <td>{invoice.provider_domain}</td>
-                    <td>{invoice.due_date || "-"}</td>
-                    <td>{invoice.amount ? `${invoice.amount} ${invoice.currency || ""}` : "-"}</td>
-                    <td>{invoice.status}</td>
-                    <td title={invoice.file_path}>{shortPath(invoice.file_path)}</td>
-                  </tr>
-                ))}
-                {invoices.length === 0 && (
-                  <tr>
-                    <td colSpan={6}>{t.invoiceEmpty}</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="muted">{t.invoiceListCollapsed}</p>
-        )}
-      </section>
         </>
       )}
         </div>
@@ -2216,14 +2350,19 @@ async function api(path: string, options: RequestInit = {}) {
   return response.json();
 }
 
-function apiErrorMessage(error: unknown) {
+function apiErrorMessage(error: unknown, language: UiLanguage = "pl") {
   const raw = error instanceof Error ? error.message : String(error);
   try {
     const parsed = JSON.parse(raw) as { error?: string };
-    return parsed.error || raw;
+    return localizeServerMessage(parsed.error || raw, language);
   } catch {
-    return raw;
+    return localizeServerMessage(raw, language);
   }
+}
+
+function browserDefaultLanguage(): UiLanguage {
+  const locale = navigator.language || navigator.languages?.[0] || "";
+  return /^pl(?:[-_]|$)/i.test(locale.trim()) ? "pl" : "en";
 }
 
 function shortPath(filePath: string) {
@@ -2245,11 +2384,77 @@ function formatDateTime(value: string, language: UiLanguage = "pl") {
 }
 
 function formatJobStatus(status: Job["status"], language: UiLanguage) {
-  if (language === "en") return status;
+  if (language === "en") {
+    if (status === "queued") return "Queued";
+    if (status === "running") return "Running";
+    if (status === "done") return "Done";
+    return "Failed";
+  }
   if (status === "queued") return "oczekuje";
   if (status === "running") return "w toku";
   if (status === "done") return "gotowe";
   return "błąd";
+}
+
+function localizeServerMessage(message: string, language: UiLanguage) {
+  if (language !== "en" || !message) return message;
+  const replacements: Array<[RegExp, string | ((...matches: string[]) => string)]> = [
+    [/^Start cichego syncu ważnej poczty$/i, "Starting quiet important-mail sync"],
+    [/^Sprawdzam status już śledzonych wiadomości$/i, "Checking status of already tracked messages"],
+    [/^Szukam ostatnich wiadomości$/i, "Searching recent messages"],
+    [/^Znaleziono (\d+) ostatnich wiadomości$/i, count => `Found ${count} recent messages`],
+    [/^Sync ważnej poczty zakończony$/i, "Important-mail sync finished"],
+    [/^Sync zakończony\.?\s*/i, "Sync finished. "],
+    [/^Nie udało się odświeżyć żadnego konta Gmail\.?\s*/i, "Could not refresh any Gmail account. "],
+    [/^Start skanowania historycznego$/i, "Starting historical invoice scan"],
+    [/^Szukam wiadomości dla (.+)$/i, provider => `Searching messages for ${provider}`],
+    [/^Znaleziono (\d+) wiadomości dla (.+)$/i, (count, provider) => `Found ${count} messages for ${provider}`],
+    [/^Przetwarzam (.+)$/i, id => `Processing ${id}`],
+    [/^Skanowanie zakończone\.?\s*/i, "Scan finished. "],
+    [/^Ustaw najpierw główny folder archiwum faktur\.$/i, "Set the main invoice archive folder first."],
+    [/^Konto (.+?) wymaga ponownego podłączenia do Google\.$/i, account => `Account ${account} needs to be reconnected to Google.`],
+    [/^Ponownie podłącz konta Gmail w Ustawienia > Gmail: (.+)$/i, accounts => `Reconnect Gmail accounts in Settings > Gmail: ${accounts}`],
+    [/^Nie udało się odświeżyć konta (.+?): (.+)$/i, (account, error) => `Could not refresh account ${account}: ${error}`],
+    [/^Nie udało się zeskanować konta (.+?): (.+)$/i, (account, error) => `Could not scan account ${account}: ${error}`],
+    [/^Oznaczono jako przeczytane: (.+)$/i, subject => `Marked as read: ${subject}`],
+    [/^Oznaczono (\d+) widocznych maili jako przeczytane$/i, count => `Marked ${count} visible messages as read`],
+    [/^Brakuje widocznych maili do oznaczenia\.$/i, "No visible mail to mark."],
+    [/^Brakuje accountId albo messageId$/i, "Missing accountId or messageId."],
+    [/^Brakuje accountId, messageId albo attachmentId$/i, "Missing accountId, messageId, or attachmentId."],
+    [/^Nie znaleziono ważnego maila$/i, "Important mail was not found."],
+    [/^Nie znaleziono maila$/i, "Mail was not found."],
+    [/^Nie znaleziono konta pocztowego$/i, "Mail account was not found."],
+    [/^Nie znaleziono profilu$/i, "Profile was not found."],
+    [/^Nie znaleziono operacji$/i, "Operation was not found."],
+    [/^Tej operacji nie da się jeszcze cofnąć\.$/i, "This operation cannot be undone yet."],
+    [/^Wpisz pytanie do czatu\.$/i, "Enter a chat question."],
+    [/^Wiadomość przypisana ręcznie do kategorii\.$/i, "Message manually assigned to a category."],
+    [/^Wiadomość może wymagać uwagi\.$/i, "Message may need attention."],
+    [/^Sprawdź wiadomość od tego nadawcy\.$/i, "Review the message from this sender."],
+    [/^Sprawdź płatność albo transakcję\.$/i, "Check the payment or transaction."],
+    [/^Sprawdź status zamówienia\.$/i, "Check order status."],
+    [/^Sprawdź komunikat bankowy\.$/i, "Check the banking message."],
+    [/^Sprawdź, czy wymaga działania\.$/i, "Check whether this requires action."],
+    [/^Sprawdź termin płatności lub archiwum faktur\.$/i, "Check the payment due date or invoice archive."],
+    [/^Sprawdź, czy wymaga odpowiedzi lub płatności\.$/i, "Check whether this requires a reply or payment."],
+    [/^Sprawdź termin płatności\.$/i, "Check the payment due date."],
+    [/^Sprawdź, czy to znana aktywność\.$/i, "Check whether this is known activity."],
+    [/^Sprawdź, czy wymaga odpowiedzi\.$/i, "Check whether this requires a reply."],
+    [/^Lokalny serwer LLM nie zwrócił żadnego załadowanego modelu\. Załaduj model ręcznie w serwerze LLM i spróbuj ponownie\.$/i, "The local LLM server did not return any loaded model. Load the model manually in the LLM server and try again."],
+    [/^Nie mogę sprawdzić załadowanego modelu przez (.+?): HTTP (\d+)$/i, (url, status) => `Could not check the loaded model through ${url}: HTTP ${status}`],
+    [/^Timeout IMAP dla konta (.+?)(?: podczas: .+)?\. Serwer poczty nie odpowiedział w czasie\.$/i, account => `IMAP timeout for account ${account}. The mail server did not respond in time.`],
+    [/^Nie znaleziono załącznika$/i, "Attachment was not found."],
+    [/^Załącznik nie zawiera danych$/i, "Attachment does not contain data."]
+  ];
+
+  let result = message;
+  for (const [pattern, replacement] of replacements) {
+    result = result.replace(pattern, (...args) => {
+      const matches = args.slice(1, -2).map(String);
+      return typeof replacement === "function" ? replacement(...matches) : replacement;
+    });
+  }
+  return result;
 }
 
 function mailKey(item: Pick<ImportantItem, "accountId" | "messageId">) {

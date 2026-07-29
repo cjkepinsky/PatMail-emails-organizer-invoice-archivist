@@ -20,6 +20,7 @@ async function startPackagedBackend() {
   process.env.GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://127.0.0.1:${port}/api/auth/google/callback`;
   process.env.DATA_DIR = process.env.DATA_DIR || findNearbyDataDir(appPath) || app.getPath("userData");
   process.env.STATIC_DIR = process.env.STATIC_DIR || path.join(appPath, "dist");
+  process.env.MAILBOT_LOCALE = process.env.MAILBOT_LOCALE || app.getLocale();
 
   const serverEntry = path.join(appPath, "dist-server", "index.js");
   const serverModule = await import(pathToFileURL(serverEntry).href);
@@ -70,6 +71,8 @@ async function createWindow() {
     }
   });
 
+  installEditingFeatures(mainWindow);
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
@@ -95,6 +98,21 @@ function installMenu() {
       ]
     },
     {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "delete" },
+        { type: "separator" },
+        { role: "selectAll" }
+      ]
+    },
+    {
       label: "Widok",
       submenu: [
         { role: "reload" },
@@ -108,6 +126,39 @@ function installMenu() {
       ]
     }
   ]));
+}
+
+function installEditingFeatures(window) {
+  window.webContents.on("context-menu", (_event, params) => {
+    const template = [];
+
+    if (params.isEditable) {
+      template.push(
+        { role: "undo", enabled: params.editFlags.canUndo },
+        { role: "redo", enabled: params.editFlags.canRedo },
+        { type: "separator" },
+        { role: "cut", enabled: params.editFlags.canCut },
+        { role: "copy", enabled: params.editFlags.canCopy },
+        { role: "paste", enabled: params.editFlags.canPaste },
+        { role: "pasteAndMatchStyle", enabled: params.editFlags.canPaste },
+        { role: "delete", enabled: params.editFlags.canDelete },
+        { type: "separator" },
+        { role: "selectAll", enabled: params.editFlags.canSelectAll }
+      );
+    } else if (params.selectionText) {
+      template.push({ role: "copy", enabled: params.editFlags.canCopy });
+    }
+
+    if (params.linkURL) {
+      if (template.length > 0) template.push({ type: "separator" });
+      template.push({
+        label: "Open Link in Browser",
+        click: () => shell.openExternal(params.linkURL)
+      });
+    }
+
+    if (template.length > 0) Menu.buildFromTemplate(template).popup({ window });
+  });
 }
 
 async function waitForHttp(url, timeoutMs) {
