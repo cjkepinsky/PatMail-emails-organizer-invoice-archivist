@@ -11,6 +11,16 @@ type ImapMessageRef = {
   uid: number;
 };
 
+const IMAP_CONNECTION_TIMEOUT_MS = 30_000;
+const IMAP_GREETING_TIMEOUT_MS = 16_000;
+const IMAP_SOCKET_TIMEOUT_MS = 45_000;
+const IMAP_OPERATION_TIMEOUT_MS = 90_000;
+const IMAP_CLOSE_TIMEOUT_MS = 5_000;
+
+type MailBotImapClient = ImapFlow & {
+  mailBotLastError?: Error;
+};
+
 export function parseImapConfig(account: GmailAccount): ImapAccountConfig {
   const parsed = JSON.parse(account.imapConfigJson || "{}") as Partial<ImapAccountConfig>;
   const host = String(parsed.host || "imap.gmail.com").trim();
@@ -34,11 +44,13 @@ export function parseImapConfig(account: GmailAccount): ImapAccountConfig {
 }
 
 export async function verifyImapConfig(config: ImapAccountConfig) {
-  const client = createClient(config);
+  const client = createClient(config, config.user);
   try {
-    await client.connect();
-    const mailbox = await resolveMailbox(client, config.mailbox);
-    await client.mailboxOpen(mailbox);
+    await runImapOperation(client, config.user, "łączenie z IMAP", () => client.connect());
+    const mailbox = await runImapOperation(client, config.user, "wybór skrzynki IMAP", () =>
+      resolveMailbox(client, config.mailbox)
+    );
+    await runImapOperation(client, config.user, "otwieranie skrzynki IMAP", () => client.mailboxOpen(mailbox));
     return { mailbox };
   } finally {
     await closeClient(client);
@@ -103,8 +115,8 @@ export async function isImapMessageUnread(account: GmailAccount, messageId: stri
   });
 }
 
-function createClient(config: ImapAccountConfig) {
-  return new ImapFlow({
+function createClient(config: ImapAccountConfig, accountEmail = config.user) {
+  const client = new ImapFlow({
     host: config.host,
     port: config.port,
     secure: config.secure,
@@ -112,8 +124,18 @@ function createClient(config: ImapAccountConfig) {
       user: config.user,
       pass: config.password
     },
+    disableAutoIdle: true,
+    connectionTimeout: IMAP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: IMAP_GREETING_TIMEOUT_MS,
+    socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
     logger: false
+  }) as MailBotImapClient;
+
+  client.on("error", error => {
+    client.mailBotLastError = normalizeImapError(error, accountEmail);
   });
+
+  return client;
 }
 
 async function withMailbox<T>(
@@ -122,12 +144,22 @@ async function withMailbox<T>(
   callback: (client: ImapFlow, mailbox: string, uidValidity: string) => Promise<T>
 ) {
   const config = parseImapConfig(account);
-  const client = createClient(config);
+  const client = createClient(config, account.email);
   try {
-    await client.connect();
-    const mailbox = requestedMailbox || await resolveMailbox(client, config.mailbox);
-    const opened = await client.mailboxOpen(mailbox);
-    return await callback(client, mailbox, String(opened.uidValidity));
+    await runImapOperation(client, account.email, "łączenie z IMAP", () => client.connect());
+    const mailbox =
+      requestedMailbox ||
+      (await runImapOperation(client, account.email, "wybór skrzynki IMAP", () =>
+        resolveMailbox(client, config.mailbox)
+      ));
+    const opened = await runImapOperation(client, account.email, "otwieranie skrzynki IMAP", () =>
+      client.mailboxOpen(mailbox)
+    );
+    return await runImapOperation(client, account.email, "operacja IMAP", () =>
+      callback(client, mailbox, String(opened.uidValidity))
+    );
+  } catch (error) {
+    throw normalizeImapError((client as MailBotImapClient).mailBotLastError || error, account.email);
   } finally {
     await closeClient(client);
   }
@@ -135,10 +167,68 @@ async function withMailbox<T>(
 
 async function closeClient(client: ImapFlow) {
   try {
-    await client.logout();
+    const logout = client.logout();
+    logout.catch(() => {});
+    await Promise.race([
+      logout,
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout zamykania połączenia IMAP")), IMAP_CLOSE_TIMEOUT_MS)
+      )
+    ]);
   } catch {
     client.close();
   }
+}
+
+function runImapOperation<T>(
+  client: MailBotImapClient,
+  accountEmail: string,
+  action: string,
+  operation: () => Promise<T>,
+  timeoutMs = IMAP_OPERATION_TIMEOUT_MS
+) {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      client.removeListener("error", onError);
+      callback();
+    };
+    const onError = (error: unknown) => {
+      finish(() => reject(normalizeImapError(error, accountEmail, action)));
+    };
+    const timeout = setTimeout(() => {
+      client.close();
+      finish(() => reject(normalizeImapError(new Error(`Timeout IMAP podczas: ${action}`), accountEmail, action)));
+    }, timeoutMs);
+
+    client.once("error", onError);
+    try {
+      operation().then(
+        result => finish(() => resolve(result)),
+        error => finish(() => reject(normalizeImapError(error, accountEmail, action)))
+      );
+    } catch (error) {
+      finish(() => reject(normalizeImapError(error, accountEmail, action)));
+    }
+  });
+}
+
+function normalizeImapError(error: unknown, accountEmail: string, action?: string) {
+  const original = error instanceof Error ? error : new Error(String(error));
+  const message = original.message || String(error);
+  const errorWithCode = original as Error & { code?: unknown };
+  const code = typeof errorWithCode.code === "string" ? errorWithCode.code : "";
+
+  if (/socket timeout|timed?\s*out|timeout|etimeout/i.test(`${code} ${message}`)) {
+    return new Error(
+      `Timeout IMAP dla konta ${accountEmail}${action ? ` podczas: ${action}` : ""}. Serwer poczty nie odpowiedział w czasie.`
+    );
+  }
+
+  return original;
 }
 
 async function resolveMailbox(client: ImapFlow, preferred?: string) {

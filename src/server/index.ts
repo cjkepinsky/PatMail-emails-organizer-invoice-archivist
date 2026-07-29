@@ -143,6 +143,7 @@ app.post("/api/settings", (req, res) => {
   const settings = updateAppSettings({
     archiveDir: String(body.archiveDir || ""),
     historyYears: Number(body.historyYears || 4),
+    language: body.language === "en" ? "en" : "pl",
     themeMode: body.themeMode,
     autoSyncEnabled: body.autoSyncEnabled === true || body.autoSyncEnabled === "true" || body.autoSyncEnabled === 1,
     autoSyncMinutes: Number(body.autoSyncMinutes || 30),

@@ -559,6 +559,7 @@ function describeAccountScanError(accountEmail: string, error: unknown) {
   if (/\binvalid_grant\b/i.test(message)) {
     return `Konto ${accountEmail} wymaga ponownego podłączenia do Google.`;
   }
+  if (/^Timeout IMAP dla konta\b/i.test(message)) return message;
   return `Nie udało się zeskanować konta ${accountEmail}: ${message}`;
 }
 

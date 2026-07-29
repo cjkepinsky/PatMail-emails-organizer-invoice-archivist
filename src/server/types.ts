@@ -20,6 +20,7 @@ export type Profile = {
 export type AppSettings = {
   archiveDir: string;
   historyYears: number;
+  language: "pl" | "en";
   themeMode: "dark" | "light" | "system";
   autoSyncEnabled: boolean;
   autoSyncMinutes: number;

@@ -798,6 +798,7 @@ function initializeProfileDefaults(profileId: string, useLegacyFallback: boolean
   const settings: AppSettings = {
     archiveDir: read("archiveDir") || serverConfig.defaultArchiveDir,
     historyYears: Number(read("historyYears") || 4),
+    language: normalizeLanguage(read("language")),
     themeMode: normalizeThemeMode(read("themeMode")),
     autoSyncEnabled: normalizeBooleanSetting(read("autoSyncEnabled"), false),
     autoSyncMinutes: normalizeAutoSyncMinutes(read("autoSyncMinutes")),
@@ -851,6 +852,7 @@ export function getAppSettings(): AppSettings {
   return {
     archiveDir: getSetting("archiveDir") || "",
     historyYears: Number(getSetting("historyYears") || 4),
+    language: normalizeLanguage(getSetting("language")),
     themeMode: normalizeThemeMode(getSetting("themeMode")),
     autoSyncEnabled: normalizeBooleanSetting(getSetting("autoSyncEnabled"), false),
     autoSyncMinutes: normalizeAutoSyncMinutes(getSetting("autoSyncMinutes")),
@@ -934,6 +936,7 @@ function pruneChatHistory() {
 export function updateAppSettings(input: Partial<AppSettings>) {
   if (input.archiveDir !== undefined) setSetting("archiveDir", input.archiveDir);
   if (input.historyYears !== undefined) setSetting("historyYears", String(input.historyYears));
+  if (input.language !== undefined) setSetting("language", normalizeLanguage(input.language));
   if (input.themeMode !== undefined) setSetting("themeMode", normalizeThemeMode(input.themeMode));
   if (input.autoSyncEnabled !== undefined) setSetting("autoSyncEnabled", input.autoSyncEnabled ? "1" : "0");
   if (input.autoSyncMinutes !== undefined) {
@@ -1030,6 +1033,10 @@ function normalizeThemeMode(value: unknown): AppSettings["themeMode"] {
   const mode = String(value || "").trim();
   if (mode === "light" || mode === "system") return mode;
   return "dark";
+}
+
+function normalizeLanguage(value: unknown): AppSettings["language"] {
+  return String(value || "").trim() === "en" ? "en" : "pl";
 }
 
 function normalizeClassifierTimeout(value: unknown) {
