@@ -83,7 +83,7 @@ PatMail classifies unread messages into tabs such as AI, orders, payments, invoi
 Current classifier setup:
 
 - Mode: `hybrid`
-- Local classifier endpoint: `http://127.0.0.1:11434/v1`
+- Local classifier endpoint: `http://127.0.0.1:11434/v1` (Ollama OpenAI-compatible API by default)
 - Default lightweight model: `tinydolphin:latest`
 - Timeout: `2500 ms`
 - API format: OpenAI-compatible `/chat/completions`
@@ -116,7 +116,7 @@ This is the main AI workflow in the project: a deterministic rules layer does th
 | --- | --- | --- | --- |
 | Mailbox chat | Configurable, portfolio/default setup: `gpt-4.1-mini` | OpenAI API | Conversational answers about mailbox context |
 | Mailbox chat with Web Research | Same chat model through OpenAI Responses API + `web_search` | OpenAI API | Answers that can combine mailbox context with current web information |
-| Mail classification fallback | `tinydolphin:latest` | Local OpenAI-compatible endpoint, default `http://127.0.0.1:11434/v1` | Lightweight categorization and summary JSON for ambiguous unread mail |
+| Mail classification fallback | `tinydolphin:latest` | Local OpenAI-compatible endpoint, default `http://127.0.0.1:11434/v1` (Ollama) | Lightweight categorization and summary JSON for ambiguous unread mail |
 | Previously discussed LAN model | GPT-OSS-20B | Not active in the current chat implementation | Kept as an architectural option, but the current chat path uses OpenAI API |
 
 ## Invoice Archiving
@@ -440,7 +440,7 @@ PatMail klasyfikuje nieprzeczytane maile do zakładek takich jak AI, zamówienia
 Obecna konfiguracja klasyfikatora:
 
 - Tryb: `hybrid`
-- Lokalny endpoint klasyfikatora: `http://127.0.0.1:11434/v1`
+- Lokalny endpoint klasyfikatora: `http://127.0.0.1:11434/v1` (domyślnie Ollama w trybie OpenAI-compatible API)
 - Domyślny lekki model: `tinydolphin:latest`
 - Timeout: `2500 ms`
 - Format API: OpenAI-compatible `/chat/completions`
@@ -473,7 +473,7 @@ To główny workflow AI w projekcie: tania i audytowalna warstwa reguł wykonuje
 | --- | --- | --- | --- |
 | Czat ze skrzynką | Konfigurowalny, konfiguracja portfolio/domyślna: `gpt-4.1-mini` | OpenAI API | Odpowiedzi konwersacyjne na podstawie kontekstu poczty |
 | Czat ze skrzynką z Web Research | Ten sam model czatu przez OpenAI Responses API + `web_search` | OpenAI API | Odpowiedzi łączące kontekst poczty z aktualnymi informacjami z sieci |
-| Fallback klasyfikacji maili | `tinydolphin:latest` | Lokalny endpoint OpenAI-compatible, domyślnie `http://127.0.0.1:11434/v1` | Lekka klasyfikacja i podsumowanie JSON dla niejednoznacznych maili |
+| Fallback klasyfikacji maili | `tinydolphin:latest` | Lokalny endpoint OpenAI-compatible, domyślnie `http://127.0.0.1:11434/v1` (Ollama) | Lekka klasyfikacja i podsumowanie JSON dla niejednoznacznych maili |
 | Wcześniej planowany model LAN | GPT-OSS-20B | Nieaktywny w obecnej implementacji czatu | Opcja architektoniczna, ale obecny czat używa OpenAI API |
 
 ## Archiwizacja faktur
