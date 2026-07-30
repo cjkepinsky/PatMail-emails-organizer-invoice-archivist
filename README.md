@@ -128,7 +128,7 @@ Main behavior:
 - Scans connected Gmail accounts.
 - Supports an initial historical backfill, defaulting to four years.
 - Runs provider-specific searches.
-- Saves files under one folder per provider domain, for example `suno.com`, `setapp.com`, `openai.com`, or `jetbrains.com`.
+- Saves files under one folder per provider domain, for example `provider-a.example`, `provider-b.example`, or `billing-service.example`.
 - File names start with invoice month in `YYYY-MM` format.
 - If the invoice issue month cannot be confidently extracted from the document, PatMail falls back to the email date.
 - Tracks saved and duplicate attachments in SQLite.
@@ -143,7 +143,7 @@ Provider rules include:
 - sender-only matching,
 - optional "save email body as PDF" behavior for providers that do not attach invoices directly.
 
-Default providers include Suno, Setapp, Leonardo AI, OpenAI, ElevenLabs, Udio, Google AI Studio, CapCut, Krea.ai, Midjourney, Perplexity, JetBrains, and Wispr Flow.
+The default provider templates cover common subscription, SaaS, app-store, payment-processor, and developer-tool invoice patterns, but the actual provider list is meant to be configured locally by each user.
 
 Duplicate handling:
 
@@ -485,7 +485,7 @@ Glowne zachowanie:
 - Skanuje podlaczone konta Gmail.
 - Obsluguje pierwszy historyczny backfill, domyslnie cztery lata wstecz.
 - Uruchamia wyszukiwania per dostawca.
-- Zapisuje pliki w folderach nazwanych domena dostawcy, na przyklad `suno.com`, `setapp.com`, `openai.com`, `jetbrains.com`.
+- Zapisuje pliki w folderach nazwanych domena dostawcy, na przyklad `provider-a.example`, `provider-b.example` albo `billing-service.example`.
 - Nazwy plikow zaczynaja sie od miesiaca faktury w formacie `YYYY-MM`.
 - Jezeli nie da sie pewnie ustalic miesiaca wystawienia z dokumentu, aplikacja uzywa daty maila.
 - Zapisane i zduplikowane zalaczniki sa indeksowane w SQLite.
@@ -500,7 +500,7 @@ Reguly dostawcow obejmuja:
 - tryb dopasowania tylko po nadawcy,
 - opcjonalne zapisywanie tresci maila jako PDF dla dostawcow bez zalaczonych faktur.
 
-Domyslni dostawcy to m.in. Suno, Setapp, Leonardo AI, OpenAI, ElevenLabs, Udio, Google AI Studio, CapCut, Krea.ai, Midjourney, Perplexity, JetBrains i Wispr Flow.
+Domyslne szablony dostawcow obejmuja typowe wzorce faktur dla subskrypcji, SaaS, zakupow przez app-store, posrednikow platnosci i narzedzi developerskich, ale konkretna lista dostawcow jest konfiguracja lokalna uzytkownika.
 
 Obsluga duplikatow:
 
