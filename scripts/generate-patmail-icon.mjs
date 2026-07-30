@@ -3,7 +3,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 
 const outDir = path.resolve("assets");
-const outPath = path.join(outDir, "mailbot.icns");
+const outPath = path.join(outDir, "patmail.icns");
 
 function buildIcns() {
   const entries = [
@@ -68,13 +68,13 @@ function drawPixel(x, y) {
 
   const bg = [0, 116, 96, 255];
   const border = edgeDistance(x, y, margin, 1 - margin) < 0.035;
-  const m =
-    segmentDistance(x, y, 0.28, 0.74, 0.28, 0.27) < 0.047 ||
-    segmentDistance(x, y, 0.28, 0.27, 0.5, 0.57) < 0.05 ||
-    segmentDistance(x, y, 0.5, 0.57, 0.72, 0.27) < 0.05 ||
-    segmentDistance(x, y, 0.72, 0.27, 0.72, 0.74) < 0.047;
+  const p =
+    segmentDistance(x, y, 0.31, 0.75, 0.31, 0.24) < 0.052 ||
+    segmentDistance(x, y, 0.31, 0.27, 0.64, 0.27) < 0.052 ||
+    segmentDistance(x, y, 0.64, 0.27, 0.64, 0.51) < 0.052 ||
+    segmentDistance(x, y, 0.31, 0.51, 0.64, 0.51) < 0.052;
 
-  if (m) return [255, 255, 255, 255];
+  if (p) return [255, 255, 255, 255];
   if (border) return [61, 255, 217, 255];
   return bg;
 }

@@ -10,6 +10,7 @@ import {
   createMailOperation,
   createProfile,
   deleteAccount,
+  deleteProfile,
   deleteImportantItem,
   getActiveProfile,
   getActiveProfileId,
@@ -104,6 +105,15 @@ app.post("/api/profiles/active", (req, res) => {
   }
 });
 
+app.delete("/api/profiles/:id", (req, res) => {
+  try {
+    deleteProfile(String(req.params.id || ""));
+    res.json(bootstrapPayload());
+  } catch (error) {
+    res.status(400).json({ error: localizeKnownError(error, appLanguage()) });
+  }
+});
+
 app.get("/api/settings", (_req, res) => {
   res.json(safeSettings());
 });
@@ -118,7 +128,13 @@ app.post("/api/ui-state", (req, res) => {
     updateUiState({
       selectedCategory: typeof body.selectedCategory === "string" ? body.selectedCategory : undefined,
       selectedAccountId: body.selectedAccountId === null ? "" : typeof body.selectedAccountId === "string" ? body.selectedAccountId : undefined,
-      selectedMessageId: body.selectedMessageId === null ? "" : typeof body.selectedMessageId === "string" ? body.selectedMessageId : undefined
+      selectedMessageId: body.selectedMessageId === null ? "" : typeof body.selectedMessageId === "string" ? body.selectedMessageId : undefined,
+      profileSidebarWidth:
+        typeof body.profileSidebarWidth === "number" || typeof body.profileSidebarWidth === "string"
+          ? body.profileSidebarWidth
+          : undefined,
+      mailColumnWeights:
+        body.mailColumnWeights && typeof body.mailColumnWeights === "object" ? body.mailColumnWeights : undefined
     })
   );
 });
@@ -154,6 +170,8 @@ app.post("/api/settings", (req, res) => {
     llmBaseUrl: String(body.llmBaseUrl || ""),
     llmApiKey: body.llmApiKey === "configured" ? current.llmApiKey : String(body.llmApiKey || ""),
     llmModel: String(body.llmModel || "gpt-4.1-mini"),
+    chatWebSearchEnabled:
+      body.chatWebSearchEnabled === true || body.chatWebSearchEnabled === "true" || body.chatWebSearchEnabled === 1,
     classifierMode: body.classifierMode,
     classifierBaseUrl: String(body.classifierBaseUrl || ""),
     classifierApiKey:
@@ -800,7 +818,7 @@ app.post("/api/chat", async (req, res) => {
   try {
     const question = String(req.body?.question || "").trim();
     if (!question) return res.status(400).json({ error: t(language, "enterChatQuestion") });
-    const previousChat = listChatHistory({ limit: 6, days: 7 }).map(turn => ({
+    const previousChat = [...listChatHistory({ limit: 6, days: 7 })].reverse().map(turn => ({
       question: turn.question,
       answer: turn.answer,
       createdAt: turn.createdAt
@@ -823,7 +841,11 @@ app.post("/api/chat", async (req, res) => {
       ...(focusedMail ? { focusedMail } : {}),
       previousChat
     };
-    const answer = await chatWithMailbox({ question, context });
+    const answer = await chatWithMailbox({
+      question,
+      context,
+      useWebSearch: req.body?.useWebSearch === true || req.body?.useWebSearch === "true"
+    });
     const turn = insertChatTurn({
       question,
       answer,
@@ -846,7 +868,7 @@ let httpServer: Server | null = null;
 export function startServer() {
   if (httpServer) return httpServer;
   httpServer = app.listen(serverConfig.port, "127.0.0.1", () => {
-    console.log(`Invoice Archivist API: http://127.0.0.1:${serverConfig.port}`);
+    console.log(`PatMail API: http://127.0.0.1:${serverConfig.port}`);
     startAutomaticImportantSync();
   });
   return httpServer;
@@ -1053,6 +1075,8 @@ function localizeKnownError(error: unknown, language: UiLanguage) {
     ],
     [/^Brakuje parametru code z Google OAuth$/i, "Missing Google OAuth code parameter."],
     [/^Nie znaleziono profilu$/i, "Profile was not found."],
+    [/^Nie można usunąć profilu domyślnego$/i, "The default profile cannot be deleted."],
+    [/^Nie można usunąć jedynego profilu$/i, "The only profile cannot be deleted."],
     [/^Google nie zwrócił adresu email konta$/i, "Google did not return the account email address."],
     [/^Załącznik nie zawiera danych$/i, "Attachment does not contain data."],
     [/^Nie znaleziono załącznika$/i, "Attachment was not found."],

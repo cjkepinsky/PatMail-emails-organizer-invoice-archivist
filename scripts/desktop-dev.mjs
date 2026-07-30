@@ -16,7 +16,7 @@ const child = spawn(electronBin, ["."], {
   stdio: "inherit",
   env: {
     ...process.env,
-    MAILBOT_DEV_URL: "http://127.0.0.1:5181"
+    PATMAIL_DEV_URL: "http://127.0.0.1:5181"
   }
 });
 

@@ -5,7 +5,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_PORT = "8797";
-const DEV_URL = process.env.MAILBOT_DEV_URL || "http://127.0.0.1:5181";
+const DEV_URL = process.env.PATMAIL_DEV_URL || "http://127.0.0.1:5181";
 
 let mainWindow = null;
 let backendServer = null;
@@ -20,7 +20,7 @@ async function startPackagedBackend() {
   process.env.GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `http://127.0.0.1:${port}/api/auth/google/callback`;
   process.env.DATA_DIR = process.env.DATA_DIR || findNearbyDataDir(appPath) || app.getPath("userData");
   process.env.STATIC_DIR = process.env.STATIC_DIR || path.join(appPath, "dist");
-  process.env.MAILBOT_LOCALE = process.env.MAILBOT_LOCALE || app.getLocale();
+  process.env.PATMAIL_LOCALE = process.env.PATMAIL_LOCALE || app.getLocale();
 
   const serverEntry = path.join(appPath, "dist-server", "index.js");
   const serverModule = await import(pathToFileURL(serverEntry).href);
@@ -63,7 +63,7 @@ async function createWindow() {
     height: 940,
     minWidth: 980,
     minHeight: 720,
-    title: "MailBot",
+    title: "PatMail",
     backgroundColor: "#070c09",
     webPreferences: {
       contextIsolation: true,
@@ -86,7 +86,7 @@ async function createWindow() {
 function installMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
-      label: "MailBot",
+      label: "PatMail",
       submenu: [
         { role: "about" },
         { type: "separator" },
@@ -172,7 +172,7 @@ async function waitForHttp(url, timeoutMs) {
     }
     await new Promise(resolve => setTimeout(resolve, 250));
   }
-  throw new Error(`Nie udało się uruchomić MailBot pod adresem ${url}`);
+  throw new Error(`Nie udało się uruchomić PatMail pod adresem ${url}`);
 }
 
 app.whenReady().then(async () => {

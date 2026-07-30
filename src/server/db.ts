@@ -524,6 +524,45 @@ export function createProfile(name: string): Profile {
   return profile;
 }
 
+export function deleteProfile(profileId: string) {
+  if (!profileId) throw new Error("Nie znaleziono profilu");
+  if (profileId === DEFAULT_PROFILE_ID) throw new Error("Nie można usunąć profilu domyślnego");
+
+  const existing = db.prepare("SELECT id FROM profiles WHERE id = ?").get(profileId);
+  if (!existing) throw new Error("Nie znaleziono profilu");
+
+  const profileCount = db.prepare("SELECT COUNT(*) AS count FROM profiles").get() as { count: number };
+  if (profileCount.count <= 1) throw new Error("Nie można usunąć jedynego profilu");
+
+  db.exec("BEGIN");
+  try {
+    for (const table of [
+      "mail_operations",
+      "important_items",
+      "ignored_mail_items",
+      "saved_mail_items",
+      "mail_cache",
+      "chat_history",
+      "scan_jobs",
+      "processed_attachments",
+      "providers",
+      "gmail_accounts"
+    ]) {
+      db.prepare(`DELETE FROM ${table} WHERE profile_id = ?`).run(profileId);
+    }
+    db.prepare("DELETE FROM settings WHERE key LIKE ?").run(`${profileSettingKey(profileId, "")}%`);
+    db.prepare("DELETE FROM profiles WHERE id = ?").run(profileId);
+    if (getGlobalSetting("activeProfileId") === profileId) {
+      setGlobalSetting("activeProfileId", DEFAULT_PROFILE_ID);
+      initializeProfileDefaults(DEFAULT_PROFILE_ID, true);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function setActiveProfile(profileId: string): Profile {
   const row = db.prepare("SELECT id, name, created_at, updated_at FROM profiles WHERE id = ?").get(profileId);
   if (!row) throw new Error("Nie znaleziono profilu");
@@ -805,6 +844,7 @@ function initializeProfileDefaults(profileId: string, useLegacyFallback: boolean
     llmBaseUrl: read("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
     llmApiKey: read("llmApiKey") || serverConfig.defaultLlmApiKey,
     llmModel: read("llmModel") || serverConfig.defaultLlmModel,
+    chatWebSearchEnabled: normalizeBooleanSetting(read("chatWebSearchEnabled"), false),
     classifierMode: normalizeClassifierMode(read("classifierMode") || serverConfig.defaultClassifierMode),
     classifierBaseUrl: read("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl,
     classifierApiKey: read("classifierApiKey") || serverConfig.defaultClassifierApiKey,
@@ -859,6 +899,7 @@ export function getAppSettings(): AppSettings {
     llmBaseUrl: getSetting("llmBaseUrl") || serverConfig.defaultLlmBaseUrl,
     llmApiKey: getSetting("llmApiKey") || "",
     llmModel: getSetting("llmModel") || serverConfig.defaultLlmModel,
+    chatWebSearchEnabled: normalizeBooleanSetting(getSetting("chatWebSearchEnabled"), false),
     classifierMode: normalizeClassifierMode(getSetting("classifierMode") || serverConfig.defaultClassifierMode),
     classifierBaseUrl: getSetting("classifierBaseUrl") || serverConfig.defaultClassifierBaseUrl,
     classifierApiKey: getSetting("classifierApiKey") || "",
@@ -875,10 +916,14 @@ export function getUiState(): UiState {
   const selectedCategory = (getSetting("uiSelectedCategory") || "").trim();
   const selectedAccountId = (getSetting("uiSelectedAccountId") || "").trim() || null;
   const selectedMessageId = (getSetting("uiSelectedMessageId") || "").trim() || null;
+  const profileSidebarWidth = parseProfileSidebarWidth(getSetting("uiProfileSidebarWidth"));
+  const mailColumnWeights = parseMailColumnWeights(getSetting("uiMailColumnWeights"));
   return {
     selectedCategory,
     selectedAccountId,
-    selectedMessageId
+    selectedMessageId,
+    profileSidebarWidth,
+    mailColumnWeights
   };
 }
 
@@ -892,7 +937,51 @@ export function updateUiState(input: Partial<UiState>) {
   if (input.selectedMessageId !== undefined) {
     setSetting("uiSelectedMessageId", (input.selectedMessageId || "").trim());
   }
+  if (input.profileSidebarWidth !== undefined) {
+    const width = normalizeProfileSidebarWidth(input.profileSidebarWidth);
+    setSetting("uiProfileSidebarWidth", width ? String(width) : "");
+  }
+  if (input.mailColumnWeights !== undefined) {
+    const weights = normalizeMailColumnWeights(input.mailColumnWeights);
+    setSetting("uiMailColumnWeights", weights ? JSON.stringify(weights) : "");
+  }
   return getUiState();
+}
+
+function parseProfileSidebarWidth(value: string | null) {
+  if (!value) return null;
+  return normalizeProfileSidebarWidth(Number(value));
+}
+
+function normalizeProfileSidebarWidth(value: unknown) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return null;
+  return Math.round(Math.max(180, Math.min(560, numberValue)));
+}
+
+function parseMailColumnWeights(value: string | null) {
+  if (!value) return null;
+  try {
+    return normalizeMailColumnWeights(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMailColumnWeights(input: unknown) {
+  if (!input || typeof input !== "object") return null;
+  const candidate = input as Record<string, unknown>;
+  const list = normalizeColumnWeight(candidate.list);
+  const preview = normalizeColumnWeight(candidate.preview);
+  const chat = normalizeColumnWeight(candidate.chat);
+  if (list === null || preview === null || chat === null) return null;
+  return { list, preview, chat };
+}
+
+function normalizeColumnWeight(value: unknown) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return null;
+  return Math.max(0.05, Math.min(4, numberValue));
 }
 
 export function listChatHistory(input: { limit?: number; days?: number } = {}): ChatTurn[] {
@@ -912,7 +1001,7 @@ export function listChatHistory(input: { limit?: number; days?: number } = {}): 
     )
     .all(since.toISOString(), profileId, limit)
     .map(mapChatTurn);
-  return rows.reverse();
+  return rows;
 }
 
 export function insertChatTurn(input: { question: string; answer: string; contextJson: string }) {
@@ -945,6 +1034,9 @@ export function updateAppSettings(input: Partial<AppSettings>) {
   if (input.llmBaseUrl !== undefined) setSetting("llmBaseUrl", input.llmBaseUrl);
   if (input.llmApiKey !== undefined) setSetting("llmApiKey", input.llmApiKey);
   if (input.llmModel !== undefined) setSetting("llmModel", input.llmModel);
+  if (input.chatWebSearchEnabled !== undefined) {
+    setSetting("chatWebSearchEnabled", input.chatWebSearchEnabled ? "1" : "0");
+  }
   if (input.classifierMode !== undefined) {
     const mode = normalizeClassifierMode(input.classifierMode);
     if (normalizeClassifierMode(getSetting("classifierMode") || serverConfig.defaultClassifierMode) !== mode) {
@@ -1044,7 +1136,7 @@ function normalizeLanguage(value: unknown, fallback: AppSettings["language"] = "
 
 function systemDefaultLanguage(): AppSettings["language"] {
   const candidates = [
-    process.env.MAILBOT_LOCALE,
+    process.env.PATMAIL_LOCALE,
     process.env.LC_ALL,
     process.env.LC_MESSAGES,
     process.env.LANG,

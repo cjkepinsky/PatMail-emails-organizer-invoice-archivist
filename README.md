@@ -1,10 +1,34 @@
-# MailBot
+# PatMail
 
 **Polska wersja znajduje się poniżej.**
 
-MailBot is a private macOS desktop app for turning several Gmail inboxes into a calmer, searchable, AI-assisted workspace. It combines automatic invoice archiving, unread-mail triage, rule-based and LLM-assisted classification, saved mail, operation history, and a conversational mailbox assistant.
+PatMail is a private macOS desktop app for turning several Gmail inboxes into a calmer, searchable, AI-assisted workspace. It combines automatic invoice archiving, unread-mail triage, rule-based and LLM-assisted classification, saved mail, operation history, and a conversational mailbox assistant.
 
 The project was built as a practical personal tool and as a portfolio project showing how AI can be integrated into a real local productivity app without sending every mailbox decision to a large model.
+
+## Screenshot Tour
+
+Some account-specific values are intentionally blurred.
+
+| Mail dashboard and AI mailbox chat | Archivizer invoice index |
+| --- | --- |
+| <img src="docs/screenshots/mail-dashboard-chat.png" alt="PatMail mail dashboard with category tabs, email preview, and mailbox chat" width="420"> | <img src="docs/screenshots/archivizer-recent-invoices.png" alt="PatMail Archivizer view with recent invoices and scan controls" width="420"> |
+| Important-mail triage with category tabs, email preview, Gmail links, bulk read controls, and mailbox chat with Web Research. | Invoice archive overview sorted by scan date, with invoice metadata, file paths, and scan controls. |
+
+| Change history and undo | General AI and app settings |
+| --- | --- |
+| <img src="docs/screenshots/change-history-undo.png" alt="PatMail change history with undo buttons" width="420"> | <img src="docs/screenshots/settings-general-ai.png" alt="PatMail general settings with language, theme, OpenAI, classifier, and Web Research defaults" width="420"> |
+| Operation history for actions such as marking messages as read, with per-record undo. | Profile-scoped language, theme, auto-sync, OpenAI chat model, Web Research default, and local classifier settings. |
+
+| Gmail account setup | Classification rules |
+| --- | --- |
+| <img src="docs/screenshots/settings-gmail-accounts.png" alt="PatMail Gmail account settings with IMAP and OAuth options" width="420"> | <img src="docs/screenshots/settings-classification-rules.png" alt="PatMail classification rule editor" width="420"> |
+| Gmail connection through IMAP app passwords, with optional Google OAuth still available. | User-editable rules for routing senders, domains, subject phrases, and body phrases into categories. |
+
+| Invoice provider rules | Invoice index repair |
+| --- | --- |
+| <img src="docs/screenshots/settings-invoice-providers.png" alt="PatMail invoice provider settings" width="420"> | <img src="docs/screenshots/settings-invoice-index-repair.png" alt="PatMail invoice index repair settings" width="420"> |
+| Provider-specific invoice matching: sender fragments, exact From/Reply-To addresses, phrase filters, and email-as-PDF mode. | Maintenance tools for repairing the local invoice index after manual file deletion or provider configuration fixes. |
 
 ## Highlights
 
@@ -47,7 +71,7 @@ The chat is intentionally separated from the lightweight classifier. A larger ho
 
 ### Hybrid Mail Classification
 
-MailBot classifies unread messages into tabs such as AI, orders, payments, invoices, health, RD, job offers, banking, account/security, software, saved, and remaining mail.
+PatMail classifies unread messages into tabs such as AI, orders, payments, invoices, health, RD, job offers, banking, account/security, software, saved, and remaining mail.
 
 Current classifier setup:
 
@@ -98,7 +122,7 @@ Main behavior:
 - Runs provider-specific searches.
 - Saves files under one folder per provider domain, for example `suno.com`, `setapp.com`, `openai.com`, or `jetbrains.com`.
 - File names start with invoice month in `YYYY-MM` format.
-- If the invoice issue month cannot be confidently extracted from the document, MailBot falls back to the email date.
+- If the invoice issue month cannot be confidently extracted from the document, PatMail falls back to the email date.
 - Tracks saved and duplicate attachments in SQLite.
 - Provides an invoice index view and index repair tools.
 
@@ -121,7 +145,7 @@ Duplicate handling:
 
 ## Important Mail Dashboard
 
-The main MailBot window is designed as a quiet alternative to living inside Gmail.
+The main PatMail window is designed as a quiet alternative to living inside Gmail.
 
 Features:
 
@@ -139,14 +163,14 @@ Features:
 
 Unread status behavior:
 
-- On refresh, MailBot checks currently tracked messages against the mailbox source.
+- On refresh, PatMail checks currently tracked messages against the mailbox source.
 - If a message was marked as read by Gmail or another client, it is removed from unread important tabs.
 - Saved messages remain visible even if read.
 - Removing a read message from saved makes it disappear from active unread views.
 
 ## Operation History and Undo
 
-MailBot keeps an operation history for recent mailbox actions.
+PatMail keeps an operation history for recent mailbox actions.
 
 Examples:
 
@@ -182,7 +206,7 @@ This allows separate private, business, client, or test configurations without m
 
 ## Gmail Connectivity
 
-MailBot supports two Gmail connection methods.
+PatMail supports two Gmail connection methods.
 
 ### Gmail IMAP
 
@@ -212,7 +236,7 @@ OAuth client settings can be entered in the app settings or provided through `.e
 
 ## Local Storage and Privacy
 
-MailBot is local-first.
+PatMail is local-first.
 
 Local state is stored in SQLite, usually under:
 
@@ -298,8 +322,8 @@ npm run desktop:build
 The macOS app and DMG are generated under:
 
 ```text
-release/mac-arm64/MailBot.app
-release/MailBot-0.1.0-arm64.dmg
+release/mac-arm64/PatMail.app
+release/PatMail-0.1.0-arm64.dmg
 ```
 
 ## Release Notes
@@ -314,11 +338,35 @@ See [LICENSE.md](LICENSE.md).
 
 ---
 
-# MailBot - wersja polska
+# PatMail - wersja polska
 
-MailBot to prywatna aplikacja desktopowa na macOS, ktora zamienia kilka skrzynek Gmail w spokojniejsze, przeszukiwalne i wspierane przez AI centrum pracy z poczta. Laczy automatyczne archiwizowanie faktur, selekcje nieprzeczytanych maili, klasyfikacje regulowa i LLM, zapisywanie maili na pozniej, historie operacji oraz czat ze skrzynka.
+PatMail to prywatna aplikacja desktopowa na macOS, ktora zamienia kilka skrzynek Gmail w spokojniejsze, przeszukiwalne i wspierane przez AI centrum pracy z poczta. Laczy automatyczne archiwizowanie faktur, selekcje nieprzeczytanych maili, klasyfikacje regulowa i LLM, zapisywanie maili na pozniej, historie operacji oraz czat ze skrzynka.
 
 Projekt powstal jako realne narzedzie do codziennego uzytku oraz jako projekt portfolio pokazujacy praktyczna integracje AI w lokalnej aplikacji produktywnosciowej.
+
+## Zrzuty ekranu
+
+Czesc danych kont i sciezek jest celowo zamazana.
+
+| Poczta i czat ze skrzynka | Archivizer i indeks faktur |
+| --- | --- |
+| <img src="docs/screenshots/mail-dashboard-chat.png" alt="PatMail: widok poczty z kategoriami, podgladem maila i czatem ze skrzynka" width="420"> | <img src="docs/screenshots/archivizer-recent-invoices.png" alt="PatMail: Archivizer z lista ostatnich faktur" width="420"> |
+| Selekcja waznych maili z zakladkami kategorii, podgladem tresci, linkami do Gmaila, akcjami zbiorczymi i czatem z opcja Web Research. | Przeglad archiwum faktur sortowany po dacie skanowania, z metadanymi faktur, sciezkami plikow i przyciskiem skanowania. |
+
+| Historia zmian i cofanie | Ustawienia ogolne i AI |
+| --- | --- |
+| <img src="docs/screenshots/change-history-undo.png" alt="PatMail: historia zmian z przyciskami cofania" width="420"> | <img src="docs/screenshots/settings-general-ai.png" alt="PatMail: ustawienia ogolne, OpenAI, klasyfikator i Web Research" width="420"> |
+| Historia operacji, takich jak oznaczanie maili jako przeczytane, z mozliwoscia cofania wybranych rekordow. | Ustawienia per profil: jezyk, motyw, auto-sync, model czatu OpenAI, domyslny Web Research i lokalny klasyfikator. |
+
+| Konta Gmail | Reguly klasyfikacji |
+| --- | --- |
+| <img src="docs/screenshots/settings-gmail-accounts.png" alt="PatMail: ustawienia kont Gmail przez IMAP i OAuth" width="420"> | <img src="docs/screenshots/settings-classification-rules.png" alt="PatMail: edytor regul klasyfikacji maili" width="420"> |
+| Podlaczanie Gmaila przez hasla aplikacji IMAP, z opcjonalnym Google OAuth. | Edytowalne reguly kierujace nadawcow, domeny oraz frazy z tematu i tresci maila do wybranych kategorii. |
+
+| Dostawcy faktur | Naprawa indeksu faktur |
+| --- | --- |
+| <img src="docs/screenshots/settings-invoice-providers.png" alt="PatMail: ustawienia dostawcow faktur" width="420"> | <img src="docs/screenshots/settings-invoice-index-repair.png" alt="PatMail: narzedzie naprawy indeksu faktur" width="420"> |
+| Reguly dopasowania faktur per dostawca: fragmenty nadawcy, dokladne adresy From/Reply-To, frazy filtrujace i tryb zapisu maila jako PDF. | Narzedzia utrzymaniowe do naprawy lokalnego indeksu faktur po recznym usunieciu plikow albo poprawkach konfiguracji dostawcow. |
 
 ## Najwazniejsze funkcje
 
@@ -361,7 +409,7 @@ Czat jest celowo oddzielony od klasyfikatora. Wiekszy model jest sensowny do roz
 
 ### Hybrydowa klasyfikacja maili
 
-MailBot klasyfikuje nieprzeczytane maile do zakladek takich jak AI, zamowienia, platnosci, faktury i rachunki, zdrowie, RD, oferty pracy, bankowe, konta i bezpieczenstwo, software, zapisane oraz pozostale.
+PatMail klasyfikuje nieprzeczytane maile do zakladek takich jak AI, zamowienia, platnosci, faktury i rachunki, zdrowie, RD, oferty pracy, bankowe, konta i bezpieczenstwo, software, zapisane oraz pozostale.
 
 Obecna konfiguracja klasyfikatora:
 
@@ -435,7 +483,7 @@ Obsluga duplikatow:
 
 ## Widok waznej poczty
 
-Glowne okno MailBota jest pomyslane jako spokojniejsza alternatywa dla ciaglego siedzenia w Gmailu.
+Glowne okno PatMaila jest pomyslane jako spokojniejsza alternatywa dla ciaglego siedzenia w Gmailu.
 
 Funkcje:
 
@@ -453,14 +501,14 @@ Funkcje:
 
 Zachowanie statusu przeczytania:
 
-- Przy odswiezaniu MailBot sprawdza obecnie sledzone maile w zrodle poczty.
+- Przy odswiezaniu PatMail sprawdza obecnie sledzone maile w zrodle poczty.
 - Jezeli mail zostal przeczytany w Gmailu albo innej aplikacji, znika z nieprzeczytanych waznych zakladek.
 - Zapisane maile pozostaja widoczne nawet po przeczytaniu.
 - Usuniecie przeczytanego maila z zapisanych sprawia, ze znika z aktywnych widokow nieprzeczytanych.
 
 ## Historia operacji i cofanie
 
-MailBot zapisuje historie ostatnich operacji na poczcie.
+PatMail zapisuje historie ostatnich operacji na poczcie.
 
 Przyklady:
 
@@ -496,7 +544,7 @@ Dzieki temu mozna rozdzielic konfiguracje prywatna, firmowa, kliencka albo testo
 
 ## Laczenie z Gmail
 
-MailBot obsluguje dwie metody polaczenia z Gmail.
+PatMail obsluguje dwie metody polaczenia z Gmail.
 
 ### Gmail IMAP
 
@@ -526,7 +574,7 @@ Dane klienta OAuth mozna wpisac w ustawieniach aplikacji albo przekazac przez `.
 
 ## Dane lokalne i prywatnosc
 
-MailBot jest aplikacja local-first.
+PatMail jest aplikacja local-first.
 
 Lokalny stan jest przechowywany w SQLite, zwykle tutaj:
 
@@ -612,8 +660,8 @@ npm run desktop:build
 Artefakty macOS powstaja tutaj:
 
 ```text
-release/mac-arm64/MailBot.app
-release/MailBot-0.1.0-arm64.dmg
+release/mac-arm64/PatMail.app
+release/PatMail-0.1.0-arm64.dmg
 ```
 
 ## Uwagi o release

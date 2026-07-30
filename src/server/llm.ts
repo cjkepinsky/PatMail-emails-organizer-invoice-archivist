@@ -122,7 +122,7 @@ export async function classifyMailWithLlm(input: {
   }
 }
 
-export async function chatWithMailbox(input: { question: string; context: unknown }) {
+export async function chatWithMailbox(input: { question: string; context: unknown; useWebSearch?: boolean }) {
   const settings = getAppSettings();
   if (!settings.llmApiKey) {
     return settings.language === "en"
@@ -130,14 +130,13 @@ export async function chatWithMailbox(input: { question: string; context: unknow
       : "Nie skonfigurowano tokenu OpenAI do czatu ze skrzynką.";
   }
   const language = settings.language || "pl";
+  const useWebSearch = Boolean(input.useWebSearch);
+  const systemPrompt = mailboxSystemPrompt(language, useWebSearch);
 
   const messages = [
     {
       role: "system",
-      content:
-        language === "en"
-          ? "You are the user's assistant for talking with Gmail mailboxes. Answer in English, briefly and concretely. Use only the provided context; if something is missing from context, say so directly. Prefer 3-7 short bullet points, dates, amounts, and required actions."
-          : "Jesteś asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj po polsku, krótko i konkretnie. Używaj tylko podanego kontekstu; jeśli czegoś nie ma w kontekście, powiedz to wprost. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania."
+      content: systemPrompt
     },
     {
       role: "user",
@@ -148,12 +147,98 @@ export async function chatWithMailbox(input: { question: string; context: unknow
     }
   ];
 
+  if (useWebSearch) {
+    return responseWithWebSearch({
+      endpoint: chatEndpoint(settings),
+      systemPrompt,
+      question: input.question,
+      context: input.context,
+      maxTokens: 900
+    });
+  }
+
   return chatCompletion(messages, {
     endpoint: chatEndpoint(settings),
     temperature: 0.1,
     responseFormatJson: false,
     maxTokens: 700
   });
+}
+
+function mailboxSystemPrompt(language: "pl" | "en", useWebSearch: boolean) {
+  const base =
+    language === "en"
+      ? "You are the user's assistant for talking with Gmail mailboxes. Answer briefly and concretely. Always answer in the same language as the user's latest question, regardless of the app interface language. If the question is in Polish, answer in Polish; if it is in English, answer in English; if it is in German, answer in German; for mixed-language questions, use the dominant language unless the user explicitly asks otherwise. Prefer 3-7 short bullet points, dates, amounts, and required actions."
+      : "Jesteś asystentem użytkownika do rozmowy ze skrzynkami Gmail. Odpowiadaj krótko i konkretnie. Zawsze odpowiadaj w tym samym języku, w którym użytkownik zadał ostatnie pytanie, niezależnie od języka interfejsu aplikacji. Jeśli pytanie jest po polsku, odpowiedz po polsku; jeśli po angielsku, odpowiedz po angielsku; jeśli po niemiecku, odpowiedz po niemiecku; przy pytaniach mieszanych użyj dominującego języka, chyba że użytkownik poprosi inaczej. Preferuj 3-7 krótkich punktów, daty, kwoty i wymagane działania.";
+  const sourcePolicy = useWebSearch
+    ? language === "en"
+      ? "You may use web search when it helps. Clearly separate what comes from the mailbox context from what comes from the web. Include source names or URLs for web-derived claims when available. Do not send or expose unnecessary private mailbox details in the answer."
+      : "Możesz użyć wyszukiwania w Internecie, jeśli to pomaga. Wyraźnie oddzielaj informacje wynikające z kontekstu skrzynki od informacji z Internetu. Dla informacji z sieci podawaj nazwy źródeł albo URL-e, jeśli są dostępne. Nie ujawniaj w odpowiedzi zbędnych prywatnych szczegółów ze skrzynki."
+    : language === "en"
+      ? "Use only the provided mailbox context; if something is missing from context, say so directly."
+      : "Używaj tylko podanego kontekstu skrzynki; jeśli czegoś nie ma w kontekście, powiedz to wprost.";
+  return `${base} ${sourcePolicy}`;
+}
+
+async function responseWithWebSearch(input: {
+  endpoint: ModelEndpoint;
+  systemPrompt: string;
+  question: string;
+  context: unknown;
+  maxTokens: number;
+}) {
+  const baseUrl = normalizeBaseUrl(input.endpoint.baseUrl);
+  const model = await resolveLoadedModel(input.endpoint, baseUrl);
+  const response = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(input.endpoint.apiKey ? { Authorization: `Bearer ${input.endpoint.apiKey}` } : {})
+    },
+    body: JSON.stringify({
+      model,
+      tools: [{ type: "web_search", search_context_size: "medium" }],
+      input: [
+        { role: "system", content: input.systemPrompt },
+        {
+          role: "user",
+          content: JSON.stringify({
+            question: input.question,
+            mailbox_context: input.context
+          })
+        }
+      ],
+      temperature: 0.1,
+      max_output_tokens: input.maxTokens
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI Responses API HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  return extractResponseText(await response.json());
+}
+
+function extractResponseText(json: unknown) {
+  const response = json as {
+    output_text?: unknown;
+    output?: Array<{
+      content?: Array<{
+        text?: unknown;
+      }>;
+    }>;
+  };
+  if (typeof response.output_text === "string" && response.output_text.trim()) {
+    return response.output_text.trim();
+  }
+  const parts: string[] = [];
+  for (const item of response.output || []) {
+    for (const content of item.content || []) {
+      if (typeof content.text === "string" && content.text.trim()) parts.push(content.text.trim());
+    }
+  }
+  return parts.join("\n\n").trim();
 }
 
 async function chatCompletion(

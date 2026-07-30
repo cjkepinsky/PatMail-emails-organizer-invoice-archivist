@@ -17,8 +17,8 @@ const IMAP_SOCKET_TIMEOUT_MS = 45_000;
 const IMAP_OPERATION_TIMEOUT_MS = 90_000;
 const IMAP_CLOSE_TIMEOUT_MS = 5_000;
 
-type MailBotImapClient = ImapFlow & {
-  mailBotLastError?: Error;
+type PatMailImapClient = ImapFlow & {
+  patMailLastError?: Error;
 };
 
 export function parseImapConfig(account: GmailAccount): ImapAccountConfig {
@@ -129,10 +129,10 @@ function createClient(config: ImapAccountConfig, accountEmail = config.user) {
     greetingTimeout: IMAP_GREETING_TIMEOUT_MS,
     socketTimeout: IMAP_SOCKET_TIMEOUT_MS,
     logger: false
-  }) as MailBotImapClient;
+  }) as PatMailImapClient;
 
   client.on("error", error => {
-    client.mailBotLastError = normalizeImapError(error, accountEmail);
+    client.patMailLastError = normalizeImapError(error, accountEmail);
   });
 
   return client;
@@ -159,7 +159,7 @@ async function withMailbox<T>(
       callback(client, mailbox, String(opened.uidValidity))
     );
   } catch (error) {
-    throw normalizeImapError((client as MailBotImapClient).mailBotLastError || error, account.email);
+    throw normalizeImapError((client as PatMailImapClient).patMailLastError || error, account.email);
   } finally {
     await closeClient(client);
   }
@@ -181,7 +181,7 @@ async function closeClient(client: ImapFlow) {
 }
 
 function runImapOperation<T>(
-  client: MailBotImapClient,
+  client: PatMailImapClient,
   accountEmail: string,
   action: string,
   operation: () => Promise<T>,

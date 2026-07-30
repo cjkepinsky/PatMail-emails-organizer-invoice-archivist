@@ -25,7 +25,7 @@ export function buildReplyMessage(input: {
   const references = sanitizeHeaderValue(
     [input.original.headers.references || "", originalMessageId].filter(Boolean).join(" ")
   );
-  const messageId = `<mailbot-${randomUUID()}@local.mailbot>`;
+  const messageId = `<patmail-${randomUUID()}@local.patmail>`;
   const headers = [
     `From: ${formatAddress({ email: input.accountEmail })}`,
     `To: ${formatAddress(recipient)}`,

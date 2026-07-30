@@ -27,6 +27,7 @@ export type AppSettings = {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  chatWebSearchEnabled: boolean;
   classifierMode: "rules" | "hybrid" | "local-llm";
   classifierBaseUrl: string;
   classifierApiKey: string;
@@ -51,6 +52,12 @@ export type UiState = {
   selectedCategory: string;
   selectedAccountId: string | null;
   selectedMessageId: string | null;
+  profileSidebarWidth: number | null;
+  mailColumnWeights: {
+    list: number;
+    preview: number;
+    chat: number;
+  } | null;
 };
 
 export type ChatTurn = {

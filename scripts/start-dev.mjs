@@ -4,7 +4,7 @@ import { describeStatus, ensureLocalDir, logFile, writePid } from "./dev-utils.m
 
 const status = await describeStatus();
 if (status.pidRunning || status.listeningPids.length > 0) {
-  console.log("Invoice Archivist dev server already appears to be running.");
+  console.log("PatMail dev server already appears to be running.");
   if (status.pid) console.log(`PID file: ${status.pid}`);
   if (status.listeningPids.length > 0) console.log(`Listening PIDs: ${status.listeningPids.join(", ")}`);
   process.exit(0);
@@ -21,7 +21,7 @@ const child = spawn("npm", ["run", "dev"], {
 writePid(child.pid);
 child.unref();
 
-console.log(`Started Invoice Archivist dev server in the background.`);
+console.log(`Started PatMail dev server in the background.`);
 console.log(`PID: ${child.pid}`);
 console.log(`Log: ${logFile}`);
 console.log(`App: http://127.0.0.1:5181`);

@@ -5,3 +5,6 @@ release/
 .local/
 .env
 .idea/
+.playwright-cli/
+output/
+.DS_Store

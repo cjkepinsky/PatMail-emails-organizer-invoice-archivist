@@ -10,7 +10,7 @@ if (targets.size > 0) {
 }
 
 if (targets.size === 0) {
-  console.log("No Invoice Archivist dev processes found.");
+  console.log("No PatMail dev processes found.");
   removePid();
   process.exit(0);
 }
@@ -29,7 +29,7 @@ if (remaining.length > 0) {
 }
 
 removePid();
-console.log("Invoice Archivist dev server stopped.");
+console.log("PatMail dev server stopped.");
 
 function stopPid(pid, signal = "SIGTERM") {
   try {

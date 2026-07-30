@@ -1,5 +1,5 @@
 {
-  "name": "invoice-archivist",
+  "name": "patmail",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -47,8 +47,8 @@
     "electron-builder": "^26.8.1"
   },
   "build": {
-    "appId": "com.mailbot.local",
-    "productName": "MailBot",
+    "appId": "com.patmail.local",
+    "productName": "PatMail",
     "directories": {
       "output": "release"
     },
@@ -61,7 +61,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "icon": "assets/mailbot.icns",
+      "icon": "assets/patmail.icns",
       "identity": null,
       "target": [
         "dir",

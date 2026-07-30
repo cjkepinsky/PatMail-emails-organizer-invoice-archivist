@@ -1,4 +1,4 @@
-# MailBot Source-Available Non-Commercial Evaluation License
+# PatMail Source-Available Non-Commercial Evaluation License
 
 Copyright (c) 2026 Krzysztof Kepinski.
 

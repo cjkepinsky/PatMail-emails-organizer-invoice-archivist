@@ -1,8 +1,23 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const IMPORTANT_PAGE_SIZE = 10;
+const DEFAULT_MAIL_COLUMN_WEIGHTS = {
+  list: 0.85,
+  preview: 1.05,
+  chat: 0.9
+};
+const MIN_MAIL_COLUMN_WIDTHS = {
+  list: 240,
+  preview: 300,
+  chat: 260
+};
+const DEFAULT_PROFILE_SIDEBAR_WIDTH = 240;
+const MIN_PROFILE_SIDEBAR_WIDTH = 180;
+const MAX_PROFILE_SIDEBAR_WIDTH = 560;
+
+type MailColumnWeights = typeof DEFAULT_MAIL_COLUMN_WEIGHTS;
 
 type Settings = {
   archiveDir: string;
@@ -17,6 +32,7 @@ type Settings = {
   llmBaseUrl: string;
   llmApiKey: string;
   llmModel: string;
+  chatWebSearchEnabled: boolean;
   classifierMode: "rules" | "hybrid" | "local-llm";
   classifierBaseUrl: string;
   classifierApiKey: string;
@@ -142,6 +158,19 @@ type MailChatContext = {
   receivedAt: string;
 };
 
+type MailColumnResizeHandle = "list-preview" | "preview-chat";
+
+type MailColumnResizeDrag = {
+  handle: MailColumnResizeHandle;
+  startX: number;
+  widths: MailColumnWeights;
+};
+
+type ProfileSidebarResizeDrag = {
+  startX: number;
+  startWidth: number;
+};
+
 type MailOperation = {
   id: string;
   type: "mark-read" | "mark-visible-read";
@@ -157,6 +186,8 @@ type UiState = {
   selectedCategory: string;
   selectedAccountId: string | null;
   selectedMessageId: string | null;
+  profileSidebarWidth: number | null;
+  mailColumnWeights: MailColumnWeights | null;
 };
 
 type UiLanguage = Settings["language"];
@@ -166,11 +197,17 @@ const TEXT = {
     loading: "Ładuję lokalny panel...",
     profileEyebrow: "Profile",
     spaces: "Przestrzenie",
+    defaultProfileName: "Domyślny",
     active: "aktywny",
     newProfile: "Nowy profil",
     companyProfilePlaceholder: "Firmowy",
     creating: "Chwila...",
     create: "Utwórz",
+    deleteProfile: "Usuń przestrzeń",
+    confirmDeleteProfile:
+      "Usunąć przestrzeń „{name}”? To usunie jej lokalne konta Gmail, reguły, dostawców faktur, indeks faktur, historię czatu i lokalny stan poczty.",
+    deletingProfile: "Usuwam przestrzeń...",
+    profileDeleted: "Usunięto przestrzeń: {name}.",
     profileDescription:
       "Profil obejmuje ustawienia, reguły, konta Gmail, dostawców faktur, indeks faktur i lokalny stan poczty.",
     mail: "Poczta",
@@ -211,6 +248,9 @@ const TEXT = {
     historicalScan: "Historyczny skan",
     openAiToken: "OpenAI API token",
     chatModel: "Model OpenAI do rozmowy",
+    chatWebSearch: "Domyślnie używaj Researchu z sieci",
+    chatWebSearchHelp:
+      "To tylko domyślne zaznaczenie checkboxa w czacie. Przy każdym pytaniu możesz osobno włączyć albo wyłączyć Research z sieci.",
     classifierMode: "Tryb klasyfikacji",
     classifierHybrid: "Hybryda: reguły + lekki model",
     classifierRules: "Tylko reguły",
@@ -327,6 +367,10 @@ const TEXT = {
     mailboxChat: "Chat ze skrzynką",
     chatWindowInfo: "ostatnie 10 z 7 dni",
     chatPlaceholder: "O co chodzi w mailu od księgowej? Co wymaga płatności?",
+    resizeMailColumns: "Przeciągnij, aby zmienić szerokość kolumn. Kliknij dwa razy, aby zresetować.",
+    resizeProfileSidebar: "Przeciągnij, aby zmienić szerokość panelu przestrzeni. Kliknij dwa razy, aby zresetować.",
+    useWebResearch: "Research z sieci",
+    webSearchDisabled: "Włącz Research z sieci w ustawieniach, żeby użyć go w tym pytaniu.",
     asking: "Pytam...",
     ask: "Zapytaj",
     emptyChat: "Tu pojawią się ostatnie pytania i odpowiedzi z czatu ze skrzynką.",
@@ -351,11 +395,17 @@ const TEXT = {
     loading: "Loading local dashboard...",
     profileEyebrow: "Profiles",
     spaces: "Workspaces",
+    defaultProfileName: "Default",
     active: "active",
     newProfile: "New profile",
     companyProfilePlaceholder: "Business",
     creating: "One moment...",
     create: "Create",
+    deleteProfile: "Delete workspace",
+    confirmDeleteProfile:
+      "Delete workspace “{name}”? This will remove its local Gmail accounts, rules, invoice providers, invoice index, chat history, and local mailbox state.",
+    deletingProfile: "Deleting workspace...",
+    profileDeleted: "Deleted workspace: {name}.",
     profileDescription:
       "A profile includes settings, rules, Gmail accounts, invoice providers, the invoice index, and local mailbox state.",
     mail: "Mail",
@@ -396,6 +446,9 @@ const TEXT = {
     historicalScan: "Historical scan",
     openAiToken: "OpenAI API token",
     chatModel: "OpenAI chat model",
+    chatWebSearch: "Use Web Research by default",
+    chatWebSearchHelp:
+      "This only sets the default checkbox state in mailbox chat. You can turn Web Research on or off for each question.",
     classifierMode: "Classifier mode",
     classifierHybrid: "Hybrid: rules + lightweight model",
     classifierRules: "Rules only",
@@ -511,6 +564,10 @@ const TEXT = {
     mailboxChat: "Mailbox chat",
     chatWindowInfo: "last 10 from 7 days",
     chatPlaceholder: "What is this email about? What needs payment?",
+    resizeMailColumns: "Drag to resize columns. Double-click to reset.",
+    resizeProfileSidebar: "Drag to resize the workspaces panel. Double-click to reset.",
+    useWebResearch: "Use Web Research",
+    webSearchDisabled: "Enable Web Research in settings to use it for this question.",
     asking: "Asking...",
     ask: "Ask",
     emptyChat: "Recent mailbox-chat questions and answers will appear here.",
@@ -549,6 +606,48 @@ const CATEGORY_LABELS_EN: Record<string, string> = {
   "księgowość": "accounting",
   "ksiegowosc": "accounting"
 };
+
+function normalizeMailColumnWeights(input: Partial<MailColumnWeights> | null | undefined): MailColumnWeights {
+  return {
+    list: normalizeColumnWeight(input?.list, DEFAULT_MAIL_COLUMN_WEIGHTS.list),
+    preview: normalizeColumnWeight(input?.preview, DEFAULT_MAIL_COLUMN_WEIGHTS.preview),
+    chat: normalizeColumnWeight(input?.chat, DEFAULT_MAIL_COLUMN_WEIGHTS.chat)
+  };
+}
+
+function normalizeColumnWeight(value: unknown, fallback: number) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return fallback;
+  return Math.max(0.05, Math.min(4, numberValue));
+}
+
+function normalizeWeightsFromWidths(widths: MailColumnWeights): MailColumnWeights {
+  const total = Math.max(1, widths.list + widths.preview + widths.chat);
+  return {
+    list: widths.list / total,
+    preview: widths.preview / total,
+    chat: widths.chat / total
+  };
+}
+
+function normalizeProfileSidebarWidth(value: unknown) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return DEFAULT_PROFILE_SIDEBAR_WIDTH;
+  return Math.round(clamp(numberValue, MIN_PROFILE_SIDEBAR_WIDTH, MAX_PROFILE_SIDEBAR_WIDTH));
+}
+
+function sortChatHistoryNewestFirst(turns: ChatTurn[]) {
+  return [...turns].sort((left, right) => {
+    const leftTime = new Date(left.createdAt).getTime();
+    const rightTime = new Date(right.createdAt).getTime();
+    return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+  });
+}
+
+function clamp(value: number, min: number, max: number) {
+  const safeMax = Math.max(min, max);
+  return Math.min(Math.max(value, min), safeMax);
+}
 
 function App() {
   const [settingsTab, setSettingsTab] = useState<"general" | "gmail" | "rules" | "invoices" | "other">("general");
@@ -590,17 +689,40 @@ function App() {
   });
   const [imapConnecting, setImapConnecting] = useState(false);
   const [question, setQuestion] = useState("");
+  const [chatUseWebSearch, setChatUseWebSearch] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatTurn[]>([]);
   const [chatPendingQuestion, setChatPendingQuestion] = useState("");
   const [mailChatContext, setMailChatContext] = useState<MailChatContext | null>(null);
+  const [profileSidebarWidth, setProfileSidebarWidth] = useState(DEFAULT_PROFILE_SIDEBAR_WIDTH);
+  const [mailColumnWeights, setMailColumnWeights] = useState<MailColumnWeights>(DEFAULT_MAIL_COLUMN_WEIGHTS);
   const [operations, setOperations] = useState<MailOperation[]>([]);
   const [operationUndoingId, setOperationUndoingId] = useState("");
+  const profileSidebarResizeDrag = useRef<ProfileSidebarResizeDrag | null>(null);
+  const importantWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  const mailColumnResizeDrag = useRef<MailColumnResizeDrag | null>(null);
+  const chatWebSearchDefaultProfileId = useRef("");
   const accountEmailById = useMemo(() => {
     return new Map(accounts.map(account => [account.id, account.email]));
   }, [accounts]);
   const language = settings?.language || browserDefaultLanguage();
   const t = TEXT[language];
   const oauthConfigured = Boolean(settings?.googleClientId.trim() && settings?.googleClientSecret.trim());
+  const appLayoutStyle = useMemo(
+    () =>
+      ({
+        "--profile-sidebar-width": `${profileSidebarWidth}px`
+      }) as React.CSSProperties,
+    [profileSidebarWidth]
+  );
+  const mailColumnStyle = useMemo(
+    () =>
+      ({
+        "--mail-list-fr": `${mailColumnWeights.list}fr`,
+        "--mail-preview-fr": `${mailColumnWeights.preview}fr`,
+        "--mail-chat-fr": `${mailColumnWeights.chat}fr`
+      }) as React.CSSProperties,
+    [mailColumnWeights]
+  );
 
   async function load() {
     const data = await api("/api/bootstrap");
@@ -697,6 +819,14 @@ function App() {
     document.documentElement.dataset.theme = mode;
     document.documentElement.style.colorScheme = mode === "system" ? "light dark" : mode;
   }, [settings?.themeMode]);
+
+  useEffect(() => {
+    if (!settings) return;
+    const profileKey = activeProfileId || "default";
+    if (chatWebSearchDefaultProfileId.current === profileKey) return;
+    chatWebSearchDefaultProfileId.current = profileKey;
+    setChatUseWebSearch(Boolean(settings.chatWebSearchEnabled));
+  }, [activeProfileId, settings]);
 
   const progress = useMemo(() => {
     if (!activeJob) return null;
@@ -803,12 +933,14 @@ function App() {
         body: JSON.stringify({
           selectedCategory,
           selectedAccountId: selectedMail?.accountId || null,
-          selectedMessageId: selectedMail?.messageId || null
+          selectedMessageId: selectedMail?.messageId || null,
+          profileSidebarWidth,
+          mailColumnWeights
         })
       }).catch(() => {});
     }, 150);
     return () => window.clearTimeout(timeout);
-  }, [mailFeedReady, uiStateReady, selectedCategory, selectedImportantId]);
+  }, [mailColumnWeights, mailFeedReady, profileSidebarWidth, uiStateReady, selectedCategory, selectedImportantId]);
 
   useEffect(() => {
     if (!selectedImportantId) {
@@ -845,22 +977,125 @@ function App() {
     return buildReadableMailHtml(selectedImportant.html, selectedImportant.text || selectedImportant.snippet, t);
   }, [selectedImportant, t]);
 
-  const visibleChatHistory = chatPendingQuestion
-    ? [
-        ...chatHistory,
-        {
-          id: "pending",
-          question: chatPendingQuestion,
-          answer: language === "en" ? "Asking OpenAI..." : "Pytam OpenAI...",
-          createdAt: new Date().toISOString()
-        }
-      ]
-    : chatHistory;
+  const visibleChatHistory = useMemo(() => {
+    const sorted = sortChatHistoryNewestFirst(chatHistory);
+    if (!chatPendingQuestion) return sorted;
+    return [
+      {
+        id: "pending",
+        question: chatPendingQuestion,
+        answer: language === "en" ? "Asking OpenAI..." : "Pytam OpenAI...",
+        createdAt: new Date().toISOString()
+      },
+      ...sorted
+    ];
+  }, [chatHistory, chatPendingQuestion, language]);
 
   const categoryRules = settings?.categoryRules || [];
   const selectedRule = categoryRules.find(rule => rule.id === selectedRuleId) || categoryRules[0] || null;
   const selectedProvider = providers.find(provider => provider.id === selectedProviderId) || providers[0] || null;
-  const activeProfileName = profiles.find(profile => profile.id === activeProfileId)?.name || t.activeProfile;
+  const activeProfile = profiles.find(profile => profile.id === activeProfileId) || null;
+  const activeProfileName = activeProfile ? displayProfileName(activeProfile, t) : t.activeProfile;
+
+  function resetProfileSidebarWidth() {
+    setProfileSidebarWidth(DEFAULT_PROFILE_SIDEBAR_WIDTH);
+  }
+
+  function startProfileSidebarResize(event: React.PointerEvent<HTMLDivElement>) {
+    const sidebar = event.currentTarget.previousElementSibling as HTMLElement | null;
+    if (!sidebar) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    profileSidebarResizeDrag.current = {
+      startX: event.clientX,
+      startWidth: sidebar.getBoundingClientRect().width
+    };
+    document.body.classList.add("column-resize-active");
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const drag = profileSidebarResizeDrag.current;
+      if (!drag) return;
+      setProfileSidebarWidth(normalizeProfileSidebarWidth(drag.startWidth + moveEvent.clientX - drag.startX));
+    };
+
+    const stopResize = () => {
+      profileSidebarResizeDrag.current = null;
+      document.body.classList.remove("column-resize-active");
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+  }
+
+  function resetMailColumnWidths() {
+    setMailColumnWeights(DEFAULT_MAIL_COLUMN_WEIGHTS);
+  }
+
+  function startMailColumnResize(handle: MailColumnResizeHandle, event: React.PointerEvent<HTMLDivElement>) {
+    const workspace = importantWorkspaceRef.current;
+    if (!workspace) return;
+
+    const list = workspace.querySelector<HTMLElement>(".important-list-pane");
+    const preview = workspace.querySelector<HTMLElement>(".important-preview");
+    const chat = workspace.querySelector<HTMLElement>(".mailbox-chat-pane");
+    if (!list || !preview || !chat) return;
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    mailColumnResizeDrag.current = {
+      handle,
+      startX: event.clientX,
+      widths: {
+        list: list.getBoundingClientRect().width,
+        preview: preview.getBoundingClientRect().width,
+        chat: chat.getBoundingClientRect().width
+      }
+    };
+    document.body.classList.add("column-resize-active");
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const drag = mailColumnResizeDrag.current;
+      if (!drag) return;
+
+      const delta = moveEvent.clientX - drag.startX;
+      const nextWidths = { ...drag.widths };
+      if (drag.handle === "list-preview") {
+        const pairWidth = drag.widths.list + drag.widths.preview;
+        nextWidths.list = clamp(
+          drag.widths.list + delta,
+          MIN_MAIL_COLUMN_WIDTHS.list,
+          pairWidth - MIN_MAIL_COLUMN_WIDTHS.preview
+        );
+        nextWidths.preview = pairWidth - nextWidths.list;
+      } else {
+        const pairWidth = drag.widths.preview + drag.widths.chat;
+        nextWidths.preview = clamp(
+          drag.widths.preview + delta,
+          MIN_MAIL_COLUMN_WIDTHS.preview,
+          pairWidth - MIN_MAIL_COLUMN_WIDTHS.chat
+        );
+        nextWidths.chat = pairWidth - nextWidths.preview;
+      }
+      setMailColumnWeights(normalizeWeightsFromWidths(nextWidths));
+    };
+
+    const stopResize = () => {
+      mailColumnResizeDrag.current = null;
+      document.body.classList.remove("column-resize-active");
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", stopResize);
+      window.removeEventListener("pointercancel", stopResize);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", stopResize);
+    window.addEventListener("pointercancel", stopResize);
+  }
 
   async function refreshLists() {
     const [invoiceRows, mailFeed] = await Promise.all([
@@ -886,6 +1121,8 @@ function App() {
 
   function applyPersistedUiState(uiState: UiState | null | undefined) {
     setSelectedCategory(uiState?.selectedCategory || "");
+    setProfileSidebarWidth(normalizeProfileSidebarWidth(uiState?.profileSidebarWidth));
+    setMailColumnWeights(normalizeMailColumnWeights(uiState?.mailColumnWeights));
     if (uiState?.selectedAccountId && uiState?.selectedMessageId) {
       setSelectedImportantId(mailKey({
         accountId: uiState.selectedAccountId,
@@ -948,6 +1185,28 @@ function App() {
     }
   }
 
+  async function deleteExistingProfile(profile: Profile) {
+    if (profileBusy || profile.id === "default") return;
+    const confirmed = window.confirm(t.confirmDeleteProfile.replace("{name}", profile.name));
+    if (!confirmed) return;
+
+    setProfileBusy(true);
+    setActiveJob(null);
+    setStatus(t.deletingProfile);
+    try {
+      const data = await api(`/api/profiles/${encodeURIComponent(profile.id)}`, {
+        method: "DELETE"
+      });
+      applyBootstrap(data);
+      setStatus("");
+      setToast(t.profileDeleted.replace("{name}", profile.name));
+    } catch (error) {
+      setStatus(apiErrorMessage(error, language));
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
   async function saveSettings(event?: { preventDefault?: () => void }) {
     event?.preventDefault?.();
     if (!settings) return;
@@ -956,6 +1215,7 @@ function App() {
       body: JSON.stringify(settings)
     });
     setSettings(saved);
+    setChatUseWebSearch(Boolean(saved.chatWebSearchEnabled));
     await refreshLists();
     setToast(language === "en" ? "Settings saved." : "Ustawienia zapisane.");
   }
@@ -1144,7 +1404,8 @@ function App() {
   async function submitMailboxQuestion(
     askedQuestion: string,
     focusedContext: MailChatContext | null,
-    restoreQuestionOnError = false
+    restoreQuestionOnError = false,
+    useWebSearch = false
   ) {
     const trimmedQuestion = askedQuestion.trim();
     if (!trimmedQuestion || chatPendingQuestion) return false;
@@ -1154,6 +1415,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({
           question: trimmedQuestion,
+          useWebSearch,
           ...(focusedContext
             ? {
                 mailContext: {
@@ -1195,7 +1457,7 @@ function App() {
     const askedQuestion = question.trim();
     if (!askedQuestion || chatPendingQuestion) return;
     setQuestion("");
-    await submitMailboxQuestion(askedQuestion, mailChatContext, true);
+    await submitMailboxQuestion(askedQuestion, mailChatContext, true, chatUseWebSearch);
   }
 
   async function sendReply(event: React.FormEvent) {
@@ -1376,7 +1638,7 @@ function App() {
           <div className="toast toast-success">{toast}</div>
         </div>
       )}
-      <div className="app-layout">
+      <div className="app-layout" style={appLayoutStyle}>
         <aside className="profile-sidebar" aria-label="Profile">
           <div>
             <p className="eyebrow">{t.profileEyebrow}</p>
@@ -1384,16 +1646,32 @@ function App() {
           </div>
           <div className="profile-list">
             {profiles.map(profile => (
-              <button
-                className={profile.id === activeProfileId ? "profile-pill active" : "profile-pill"}
-                disabled={profileBusy}
+              <div
+                className={profile.id === activeProfileId ? "profile-row active" : "profile-row"}
                 key={profile.id}
-                onClick={() => void switchProfile(profile.id)}
-                type="button"
               >
-                <span>{profile.name}</span>
-                {profile.id === activeProfileId && <small>{t.active}</small>}
-              </button>
+                <button
+                  className="profile-pill"
+                  disabled={profileBusy}
+                  onClick={() => void switchProfile(profile.id)}
+                  type="button"
+                >
+                  <span>{displayProfileName(profile, t)}</span>
+                  {profile.id === activeProfileId && <small>{t.active}</small>}
+                </button>
+                {profile.id !== "default" && (
+                  <button
+                    aria-label={`${t.deleteProfile}: ${profile.name}`}
+                    className="profile-delete"
+                    disabled={profileBusy}
+                    onClick={() => void deleteExistingProfile(profile)}
+                    title={t.deleteProfile}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             ))}
           </div>
           <form className="profile-create" onSubmit={createNewProfile}>
@@ -1412,10 +1690,19 @@ function App() {
           </form>
           <p className="muted">{t.profileDescription}</p>
         </aside>
+        <div
+          aria-label={t.resizeProfileSidebar}
+          aria-orientation="vertical"
+          className="profile-sidebar-resizer"
+          onDoubleClick={resetProfileSidebarWidth}
+          onPointerDown={startProfileSidebarResize}
+          role="separator"
+          title={t.resizeProfileSidebar}
+        />
         <div className="app-content">
       <section className="topbar">
         <div>
-          <p className="eyebrow">MailBot</p>
+          <p className="eyebrow">PatMail</p>
         </div>
         <div className="top-actions">
           <button
@@ -1604,6 +1891,17 @@ function App() {
 	                      placeholder="gpt-4.1-mini"
 	                    />
 	                  </label>
+	                  <label>
+	                    {t.chatWebSearch}
+	                    <select
+	                      value={settings.chatWebSearchEnabled ? "on" : "off"}
+	                      onChange={event => setSettings({ ...settings, chatWebSearchEnabled: event.target.value === "on" })}
+	                    >
+	                      <option value="off">{t.disabled}</option>
+	                      <option value="on">{t.enabled}</option>
+	                    </select>
+	                  </label>
+	                  <p className="muted full">{t.chatWebSearchHelp}</p>
 	                  <label>
 	                    {t.classifierMode}
 	                    <select
@@ -2171,7 +2469,7 @@ function App() {
         {importantItems.length === 0 && otherUnreadItems.length === 0 && savedMailItems.length === 0 ? (
           <p className="muted">{t.firstSyncHelp}</p>
         ) : (
-          <div className="important-workspace">
+          <div className="important-workspace" ref={importantWorkspaceRef} style={mailColumnStyle}>
             <div className="important-list-pane">
               <div className="category-tabs" role="tablist" aria-label={t.importantCategoriesAria}>
                 {tabs.map(tab => (
@@ -2197,49 +2495,59 @@ function App() {
                 </button>
               </div>
               <div className="feed-list">
-                {visibleImportantItems.map(item => (
-                  <article
-                    className={mailKey(item) === selectedImportantId ? "feed-item selected" : "feed-item"}
-                    key={`${selectedCategory}:${mailKey(item)}`}
-                  >
-                    <button
-                      className="feed-select"
-                      onClick={() => setSelectedImportantId(mailKey(item))}
-                      type="button"
+                {visibleImportantItems.map(item => {
+                  const title = localizeServerMessage(item.subject || item.summary || item.snippet, language);
+                  const summary = localizeServerMessage(item.summary, language);
+                  const actionRequired = localizeServerMessage(item.actionRequired, language);
+                  const previewText = summary && summary !== title ? summary : item.snippet;
+
+                  return (
+                    <article
+                      className={mailKey(item) === selectedImportantId ? "feed-item selected" : "feed-item"}
+                      key={`${selectedCategory}:${mailKey(item)}`}
                     >
-                      <div>
-                        <strong>{item.fromName || item.fromEmail}</strong>
-                        <p>{localizeServerMessage(item.summary || item.subject, language)}</p>
-                        {item.actionRequired && <small>{localizeServerMessage(item.actionRequired, language)}</small>}
-                      </div>
-                      <div className="feed-meta">
-                        <span className="feed-date">{formatDateTime(item.receivedAt, language)}</span>
-                        <span className={`pill ${item.priority}`}>{item.priority}</span>
-                        {item.dueDate && <span>{t.due}: {item.dueDate}</span>}
-                        {item.amount && <span>{item.amount} {item.currency || ""}</span>}
-                      </div>
-                    </button>
-                    <div className="feed-links">
-                      <a
-                        className="feed-link"
-                        href={gmailMessageUrl(item, accountEmailById.get(item.accountId))}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Gmail
-                      </a>
                       <button
-                        aria-label={t.markRead}
-                        className="feed-check"
-                        onClick={() => void markMailRead(item)}
-                        title={t.markRead}
+                        className="feed-select"
+                        onClick={() => setSelectedImportantId(mailKey(item))}
                         type="button"
                       >
-                        ✓
+                        <div className="feed-content">
+                          <strong className="feed-title">{title}</strong>
+                          <span className="feed-sender">{item.fromName || item.fromEmail}</span>
+                          <span className="feed-date">{formatDateTime(item.receivedAt, language)}</span>
+                          {previewText && <p className="feed-summary">{previewText}</p>}
+                          {actionRequired && actionRequired !== previewText && (
+                            <small className="feed-action">{actionRequired}</small>
+                          )}
+                          <div className="feed-badges">
+                            <span className={`pill ${item.priority}`}>{item.priority}</span>
+                            {item.dueDate && <span className="feed-badge">{t.due}: {item.dueDate}</span>}
+                            {item.amount && <span className="feed-badge">{item.amount} {item.currency || ""}</span>}
+                          </div>
+                        </div>
                       </button>
-                    </div>
-                  </article>
-                ))}
+                      <div className="feed-links">
+                        <a
+                          className="feed-link"
+                          href={gmailMessageUrl(item, accountEmailById.get(item.accountId))}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Gmail
+                        </a>
+                        <button
+                          aria-label={t.markRead}
+                          className="feed-check"
+                          onClick={() => void markMailRead(item)}
+                          title={t.markRead}
+                          type="button"
+                        >
+                          ✓
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
               {visibleImportantItems.length === 0 && (
                 <p className="muted">{t.noMailInTab}</p>
@@ -2273,6 +2581,15 @@ function App() {
                 </div>
               )}
             </div>
+            <div
+              aria-label={t.resizeMailColumns}
+              aria-orientation="vertical"
+              className="column-resizer"
+              onDoubleClick={resetMailColumnWidths}
+              onPointerDown={event => startMailColumnResize("list-preview", event)}
+              role="separator"
+              title={t.resizeMailColumns}
+            />
             <aside className="important-preview">
               {selectedImportant ? (
                 <>
@@ -2380,59 +2697,79 @@ function App() {
                 <p className="muted">{t.pickMail}</p>
               )}
             </aside>
+            <div
+              aria-label={t.resizeMailColumns}
+              aria-orientation="vertical"
+              className="column-resizer"
+              onDoubleClick={resetMailColumnWidths}
+              onPointerDown={event => startMailColumnResize("preview-chat", event)}
+              role="separator"
+              title={t.resizeMailColumns}
+            />
+            <aside className="mailbox-chat-pane">
+              <div className="section-title">
+                <h2>{t.mailboxChat}</h2>
+                <span>{t.chatWindowInfo}</span>
+              </div>
+              {mailChatContext && (
+                <div className="chat-context-strip">
+                  <div>
+                    <span>{t.chatContextActive}</span>
+                    <strong>{mailChatContext.subject}</strong>
+                    <small>
+                      {mailChatContext.fromLabel} · {formatDateTime(mailChatContext.receivedAt, language)}
+                    </small>
+                  </div>
+                  <button className="small-button" onClick={() => setMailChatContext(null)} type="button">
+                    {t.clearChatContext}
+                  </button>
+                </div>
+              )}
+              <form className="chat-form" onSubmit={askMailbox}>
+                <input
+                  disabled={Boolean(chatPendingQuestion)}
+                  value={question}
+                  onChange={event => setQuestion(event.target.value)}
+                  placeholder={t.chatPlaceholder}
+                />
+                <label
+                  className="chat-web-toggle"
+                  title={t.useWebResearch}
+                >
+                  <input
+                    checked={chatUseWebSearch}
+                    disabled={Boolean(chatPendingQuestion)}
+                    onChange={event => setChatUseWebSearch(event.target.checked)}
+                    type="checkbox"
+                  />
+                  {t.useWebResearch}
+                </label>
+                <button className="button accent" disabled={Boolean(chatPendingQuestion)} type="submit">
+                  {chatPendingQuestion ? t.asking : t.ask}
+                </button>
+              </form>
+              <div className="chat-history">
+                {visibleChatHistory.length === 0 ? (
+                  <p className="muted">{t.emptyChat}</p>
+                ) : (
+                  visibleChatHistory.map(turn => (
+                    <article className="chat-turn" key={turn.id}>
+                      <time>{formatDateTime(turn.createdAt, language)}</time>
+                      <div className="chat-bubble question">
+                        <strong>{t.you}</strong>
+                        <p>{turn.question}</p>
+                      </div>
+                      <div className="chat-bubble answer">
+                        <strong>PatMail</strong>
+                        <p>{turn.answer}</p>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </aside>
           </div>
         )}
-      </section>
-
-      <section className="panel">
-        <div className="section-title">
-          <h2>{t.mailboxChat}</h2>
-          <span>{t.chatWindowInfo}</span>
-        </div>
-        {mailChatContext && (
-          <div className="chat-context-strip">
-            <div>
-              <span>{t.chatContextActive}</span>
-              <strong>{mailChatContext.subject}</strong>
-              <small>
-                {mailChatContext.fromLabel} · {formatDateTime(mailChatContext.receivedAt, language)}
-              </small>
-            </div>
-            <button className="small-button" onClick={() => setMailChatContext(null)} type="button">
-              {t.clearChatContext}
-            </button>
-          </div>
-        )}
-        <form className="chat-form" onSubmit={askMailbox}>
-          <input
-            disabled={Boolean(chatPendingQuestion)}
-            value={question}
-            onChange={event => setQuestion(event.target.value)}
-            placeholder={t.chatPlaceholder}
-          />
-          <button className="button accent" disabled={Boolean(chatPendingQuestion)} type="submit">
-            {chatPendingQuestion ? t.asking : t.ask}
-          </button>
-        </form>
-        <div className="chat-history">
-          {visibleChatHistory.length === 0 ? (
-            <p className="muted">{t.emptyChat}</p>
-          ) : (
-            visibleChatHistory.map(turn => (
-              <article className="chat-turn" key={turn.id}>
-                <time>{formatDateTime(turn.createdAt, language)}</time>
-                <div className="chat-bubble question">
-                  <strong>{t.you}</strong>
-                  <p>{turn.question}</p>
-                </div>
-                <div className="chat-bubble answer">
-                  <strong>MailBot</strong>
-                  <p>{turn.answer}</p>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
       </section>
 
         </>
@@ -2503,7 +2840,7 @@ function formatJobStatus(status: Job["status"], language: UiLanguage) {
   return "błąd";
 }
 
-function localizeServerMessage(message: string, language: UiLanguage) {
+function localizeServerMessage(message: string, language: UiLanguage): string {
   if (language !== "en" || !message) return message;
   const replacements: Array<[RegExp, string | ((...matches: string[]) => string)]> = [
     [/^Start cichego syncu ważnej poczty$/i, "Starting quiet important-mail sync"],
@@ -2518,6 +2855,7 @@ function localizeServerMessage(message: string, language: UiLanguage) {
     [/^Znaleziono (\d+) wiadomości dla (.+)$/i, (count, provider) => `Found ${count} messages for ${provider}`],
     [/^Przetwarzam (.+)$/i, id => `Processing ${id}`],
     [/^Skanowanie zakończone\.?\s*/i, "Scan finished. "],
+    [/^Nie udało się zeskanować żadnego konta Gmail\.?\s*/i, "Could not scan any Gmail account. "],
     [/^Ustaw najpierw główny folder archiwum faktur\.$/i, "Set the main invoice archive folder first."],
     [/^Konto (.+?) wymaga ponownego podłączenia do Google\.$/i, account => `Account ${account} needs to be reconnected to Google.`],
     [/^Ponownie podłącz konta Gmail w Ustawienia > Gmail: (.+)$/i, accounts => `Reconnect Gmail accounts in Settings > Gmail: ${accounts}`],
@@ -2560,6 +2898,13 @@ function localizeServerMessage(message: string, language: UiLanguage) {
       const matches = args.slice(1, -2).map(String);
       return typeof replacement === "function" ? replacement(...matches) : replacement;
     });
+  }
+  const compound = result.match(
+    /^(Sync finished\.|Could not refresh any Gmail account\.|Could not scan any Gmail account\.|Scan finished\.)\s+(.+)$/i
+  );
+  if (compound) {
+    const tail: string = localizeServerMessage(compound[2], language);
+    if (tail !== compound[2]) return `${compound[1]} ${tail}`;
   }
   return result;
 }
@@ -2604,6 +2949,11 @@ function mailAttachmentUrl(
 function displayCategoryLabel(category: string, language: UiLanguage) {
   if (language !== "en") return category;
   return CATEGORY_LABELS_EN[category.toLowerCase()] || category;
+}
+
+function displayProfileName(profile: Profile, t: (typeof TEXT)[UiLanguage]) {
+  if (profile.id === "default") return t.defaultProfileName;
+  return profile.name;
 }
 
 function buildReadableMailHtml(html: string, text: string, t: typeof TEXT[UiLanguage]) {

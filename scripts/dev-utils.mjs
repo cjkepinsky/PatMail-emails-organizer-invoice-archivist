@@ -123,7 +123,7 @@ export function relatedDevPids(table, seedPids) {
 
 function isDevCommand(command) {
   return (
-    command.includes("invoice-archivist") ||
+    command.includes("patmail") ||
     command.includes("npm run dev") ||
     command.includes("concurrently") ||
     command.includes("tsx watch src/server/index.ts") ||
