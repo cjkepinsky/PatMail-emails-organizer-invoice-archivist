@@ -607,6 +607,16 @@ const CATEGORY_LABELS_EN: Record<string, string> = {
   "ksiegowosc": "accounting"
 };
 
+const CATEGORY_LABELS_PL: Record<string, string> = {
+  "pozostale": "pozostałe",
+  "platnosci": "płatności",
+  "zamowienia": "zamówienia",
+  "konta i bezpieczenstwo": "konta i bezpieczeństwo",
+  "ksiegowosc": "księgowość",
+  "oferty pracy": "oferty pracy",
+  "faktury i rachunki": "faktury i rachunki"
+};
+
 function normalizeMailColumnWeights(input: Partial<MailColumnWeights> | null | undefined): MailColumnWeights {
   return {
     list: normalizeColumnWeight(input?.list, DEFAULT_MAIL_COLUMN_WEIGHTS.list),
@@ -1951,7 +1961,7 @@ function App() {
 	                      placeholder={
 	                        language === "en"
 	                          ? "accountant@example.com\naccounting office\nbank"
-	                          : "ksiegowa@example.com\nbiuro rachunkowe\nbank"
+	                          : "kontakt@biuro-rachunkowe.example\nksięgowa\nbiuro rachunkowe\nbank"
 	                      }
 	                    />
 	                  </label>
@@ -2947,8 +2957,9 @@ function mailAttachmentUrl(
 }
 
 function displayCategoryLabel(category: string, language: UiLanguage) {
-  if (language !== "en") return category;
-  return CATEGORY_LABELS_EN[category.toLowerCase()] || category;
+  const normalized = category.toLowerCase();
+  if (language !== "en") return CATEGORY_LABELS_PL[normalized] || category;
+  return CATEGORY_LABELS_EN[normalized] || category;
 }
 
 function displayProfileName(profile: Profile, t: (typeof TEXT)[UiLanguage]) {

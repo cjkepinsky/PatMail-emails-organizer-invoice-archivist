@@ -359,103 +359,103 @@ See [LICENSE.md](LICENSE.md).
 
 # PatMail - wersja polska
 
-PatMail to prywatna aplikacja desktopowa na macOS, ktora zamienia kilka skrzynek Gmail w spokojniejsze, przeszukiwalne i wspierane przez AI centrum pracy z poczta. Laczy automatyczne archiwizowanie faktur, selekcje nieprzeczytanych maili, klasyfikacje regulowa i LLM, zapisywanie maili na pozniej, historie operacji oraz czat ze skrzynka.
+PatMail to prywatna aplikacja desktopowa na macOS, która zamienia kilka skrzynek Gmail w spokojniejsze, przeszukiwalne i wspierane przez AI centrum pracy z pocztą. Łączy automatyczne archiwizowanie faktur, selekcję nieprzeczytanych maili, klasyfikację regułową i LLM, zapisywanie maili na później, historię operacji oraz czat ze skrzynką.
 
-Projekt powstal jako realne narzedzie do codziennego uzytku oraz jako projekt portfolio pokazujacy praktyczna integracje AI w lokalnej aplikacji produktywnosciowej.
+Projekt powstał jako realne narzędzie do codziennego użytku oraz jako projekt portfolio pokazujący praktyczną integrację AI w lokalnej aplikacji produktywnościowej.
 
 ## Zrzuty ekranu
 
-Czesc danych kont i sciezek jest celowo zamazana.
+Część danych kont i ścieżek jest celowo zamazana.
 
-| Poczta i czat ze skrzynka | Archivizer i indeks faktur |
+| Poczta i czat ze skrzynką | Archivizer i indeks faktur |
 | --- | --- |
-| <img src="docs/screenshots/mail-dashboard-chat.png" alt="PatMail: widok poczty z kategoriami, podgladem maila i czatem ze skrzynka" width="420"> | <img src="docs/screenshots/archivizer-recent-invoices.png" alt="PatMail: Archivizer z lista ostatnich faktur" width="420"> |
-| Selekcja waznych maili z zakladkami kategorii, podgladem tresci, linkami do Gmaila, akcjami zbiorczymi i czatem z opcja Web Research. | Przeglad archiwum faktur sortowany po dacie skanowania, z metadanymi faktur, sciezkami plikow i przyciskiem skanowania. |
+| <img src="docs/screenshots/mail-dashboard-chat.png" alt="PatMail: widok poczty z kategoriami, podglądem maila i czatem ze skrzynką" width="420"> | <img src="docs/screenshots/archivizer-recent-invoices.png" alt="PatMail: Archivizer z listą ostatnich faktur" width="420"> |
+| Selekcja ważnych maili z zakładkami kategorii, podglądem treści, linkami do Gmaila, akcjami zbiorczymi i czatem z opcją Web Research. | Przegląd archiwum faktur sortowany po dacie skanowania, z metadanymi faktur, ścieżkami plików i przyciskiem skanowania. |
 
-| Historia zmian i cofanie | Ustawienia ogolne i AI |
+| Historia zmian i cofanie | Ustawienia ogólne i AI |
 | --- | --- |
-| <img src="docs/screenshots/change-history-undo.png" alt="PatMail: historia zmian z przyciskami cofania" width="420"> | <img src="docs/screenshots/settings-general-ai.png" alt="PatMail: ustawienia ogolne, OpenAI, klasyfikator i Web Research" width="420"> |
-| Historia operacji, takich jak oznaczanie maili jako przeczytane, z mozliwoscia cofania wybranych rekordow. | Ustawienia per profil: jezyk, motyw, auto-sync, model czatu OpenAI, domyslny Web Research i lokalny klasyfikator. |
+| <img src="docs/screenshots/change-history-undo.png" alt="PatMail: historia zmian z przyciskami cofania" width="420"> | <img src="docs/screenshots/settings-general-ai.png" alt="PatMail: ustawienia ogólne, OpenAI, klasyfikator i Web Research" width="420"> |
+| Historia operacji, takich jak oznaczanie maili jako przeczytane, z możliwością cofania wybranych rekordów. | Ustawienia per profil: język, motyw, auto-sync, model czatu OpenAI, domyślny Web Research i lokalny klasyfikator. |
 
-| Konta Gmail | Reguly klasyfikacji |
+| Konta Gmail | Reguły klasyfikacji |
 | --- | --- |
-| <img src="docs/screenshots/settings-gmail-accounts.png" alt="PatMail: ustawienia kont Gmail przez IMAP i OAuth" width="420"> | <img src="docs/screenshots/settings-classification-rules.png" alt="PatMail: edytor regul klasyfikacji maili" width="420"> |
-| Podlaczanie Gmaila przez hasla aplikacji IMAP, z opcjonalnym Google OAuth. | Edytowalne reguly kierujace nadawcow, domeny oraz frazy z tematu i tresci maila do wybranych kategorii. |
+| <img src="docs/screenshots/settings-gmail-accounts.png" alt="PatMail: ustawienia kont Gmail przez IMAP i OAuth" width="420"> | <img src="docs/screenshots/settings-classification-rules.png" alt="PatMail: edytor reguł klasyfikacji maili" width="420"> |
+| Podłączanie Gmaila przez hasła aplikacji IMAP, z opcjonalnym Google OAuth. | Edytowalne reguły kierujące nadawców, domeny oraz frazy z tematu i treści maila do wybranych kategorii. |
 
 | Dostawcy faktur | Naprawa indeksu faktur |
 | --- | --- |
-| <img src="docs/screenshots/settings-invoice-providers.png" alt="PatMail: ustawienia dostawcow faktur" width="420"> | <img src="docs/screenshots/settings-invoice-index-repair.png" alt="PatMail: narzedzie naprawy indeksu faktur" width="420"> |
-| Reguly dopasowania faktur per dostawca: fragmenty nadawcy, dokladne adresy From/Reply-To, frazy filtrujace i tryb zapisu maila jako PDF. | Narzedzia utrzymaniowe do naprawy lokalnego indeksu faktur po recznym usunieciu plikow albo poprawkach konfiguracji dostawcow. |
+| <img src="docs/screenshots/settings-invoice-providers.png" alt="PatMail: ustawienia dostawców faktur" width="420"> | <img src="docs/screenshots/settings-invoice-index-repair.png" alt="PatMail: narzędzie naprawy indeksu faktur" width="420"> |
+| Reguły dopasowania faktur per dostawca: fragmenty nadawcy, dokładne adresy From/Reply-To, frazy filtrujące i tryb zapisu maila jako PDF. | Narzędzia utrzymaniowe do naprawy lokalnego indeksu faktur po ręcznym usunięciu plików albo poprawkach konfiguracji dostawców. |
 
-## Najwazniejsze funkcje
+## Najważniejsze funkcje
 
 - Aplikacja macOS zbudowana na Electron, React, TypeScript, Express, SQLite, IMAP, Gmail OAuth i OpenAI-compatible LLM API.
-- Obsluga wielu kont Gmail przez Google OAuth albo hasla aplikacji Gmail IMAP.
-- Profile/przestrzenie robocze: kazdy profil ma osobne konta, dostawcow faktur, reguly kategorii, waznych nadawcow, zapisane maile, ignorowane maile, indeks faktur i lokalny stan poczty.
-- Dwujezyczny interfejs z przelacznikiem polski/angielski w ustawieniach; przy pierwszym uruchomieniu PatMail wybiera polski dla polskiego jezyka systemu i angielski dla pozostalych, a potem zapisuje wybor per profil.
+- Obsługa wielu kont Gmail przez Google OAuth albo hasła aplikacji Gmail IMAP.
+- Profile/przestrzenie robocze: każdy profil ma osobne konta, dostawców faktur, reguły kategorii, ważnych nadawców, zapisane maile, ignorowane maile, indeks faktur i lokalny stan poczty.
+- Dwujęzyczny interfejs z przełącznikiem polski/angielski w ustawieniach; przy pierwszym uruchomieniu PatMail wybiera polski dla polskiego języka systemu i angielski dla pozostałych, a potem zapisuje wybór per profil.
 - Tryb ciemny, jasny oraz systemowy.
 - Osobne widoki: Poczta, Archivizer, Historia zmian i Ustawienia.
-- Automatyczny skaner faktur z historycznym backfillem, wykrywaniem duplikatow, folderami per domena dostawcy i nazwami faktur zaczynajacymi sie od `YYYY-MM`.
-- Ciche automatyczne odswiezanie waznej poczty z konfigurowalnym interwalem, zaprojektowane tak, zeby nie obciazalo mocno CPU w tle.
-- Widok waznej poczty z zakladkami kategorii, synchronizacja tylko maili nieprzeczytanych, zapisane maile, podglad tresci, linki do zalacznikow, stronicowanie, pojedyncze i zbiorcze oznaczanie widocznych maili jako przeczytane, deklasyfikacja oraz okno odpowiedzi.
-- Zmieniana szerokosc panelu profili oraz kolumn poczty, z lokalnym zapisem stanu UI per profil.
-- Czat ze skrzynka uzywajacy konfigurowalnego modelu OpenAI, obecnie projektowany wokol `gpt-4.1-mini`, z opcjonalnym Web Research.
-- Hybrydowa klasyfikacja maili: najpierw reguly reczne, potem lekki lokalny LLM `tinydolphin:latest` tylko dla niejednoznacznych przypadkow.
+- Automatyczny skaner faktur z historycznym backfillem, wykrywaniem duplikatów, folderami dla domen dostawców i nazwami faktur zaczynającymi się od `YYYY-MM`.
+- Ciche automatyczne odświeżanie ważnej poczty z konfigurowalnym interwałem, zaprojektowane tak, żeby nie obciążało mocno CPU w tle.
+- Widok ważnej poczty z zakładkami kategorii, synchronizacją tylko maili nieprzeczytanych, zapisanymi mailami, podglądem treści, linkami do załączników, stronicowaniem, pojedynczym i zbiorczym oznaczaniem widocznych maili jako przeczytane, deklasyfikacją oraz oknem odpowiedzi.
+- Zmieniana szerokość panelu profili oraz kolumn poczty, z lokalnym zapisem stanu UI per profil.
+- Czat ze skrzynką używający konfigurowalnego modelu OpenAI, obecnie projektowany wokół `gpt-4.1-mini`, z opcjonalnym Web Research.
+- Hybrydowa klasyfikacja maili: najpierw reguły ręczne, potem lekki lokalny LLM `tinydolphin:latest` tylko dla niejednoznacznych przypadków.
 - Lokalny zapis stanu w SQLite.
 - Build macOS jako DMG przez `electron-builder`.
 
 ## Funkcje AI
 
-### Czat ze skrzynka
+### Czat ze skrzynką
 
-Czat znajduje sie obok podgladu wybranego maila i pozwala pytac o poczte normalnym jezykiem, na przyklad:
+Czat znajduje się obok podglądu wybranego maila i pozwala pytać o pocztę normalnym językiem, na przykład:
 
-- "Co jest dzisiaj wazne?"
-- "Czy mam jakies nieoplacone faktury?"
-- "O co chodzi w mailu od ksiegowej?"
-- "Pokaz ostatnie maile zwiazane z AI."
+- "Co jest dzisiaj ważne?"
+- "Czy mam jakieś nieopłacone faktury?"
+- "O co chodzi w mailu od księgowej?"
+- "Pokaż ostatnie maile związane z AI."
 
-Rozwiazanie techniczne:
+Rozwiązanie techniczne:
 
-- Endpoint czatu znajduje sie w `src/server/llm.ts`.
-- Model czatu jest konfigurowalny w ustawieniach. Konfiguracja portfolio/domyslna uzywa `gpt-4.1-mini`.
-- Zwykle zapytania ida do OpenAI Chat Completions pod `https://api.openai.com/v1/chat/completions`.
-- Gdy dla pytania wlaczony jest Web Research, PatMail uzywa OpenAI Responses API pod `https://api.openai.com/v1/responses` z narzedziem `web_search`.
-- Token OpenAI jest wpisywany w ustawieniach aplikacji i przechowywany lokalnie w bazie ustawien.
-- Model nie dostaje calej skrzynki. Backend przygotowuje ograniczony kontekst.
-- Kontekst sklada sie z:
-  - ostatnich waznych wiadomosci,
-  - dopasowan tekstowych z lokalnego cache SQLite,
-  - dat, kategorii, nadawcow, podsumowan akcji, kwot, walut i terminow platnosci, jezeli sa dostepne.
-- Akcje "Stresc" i "Zadaj pytanie" przekazuja aktualnie wybrany mail jako skoncentrowany kontekst do czatu.
-- Prompt systemowy instruuje model, zeby odpowiadal w tym samym jezyku, w ktorym uzytkownik zadal ostatnie pytanie, niezaleznie od jezyka interfejsu.
-- Historia czatu jest zapisywana lokalnie, wyswietlana od najnowszych wpisow i pokazuje w panelu ostatnie 10 tur z 7 dni.
+- Endpoint czatu znajduje się w `src/server/llm.ts`.
+- Model czatu jest konfigurowalny w ustawieniach. Konfiguracja portfolio/domyślna używa `gpt-4.1-mini`.
+- Zwykle zapytania idą do OpenAI Chat Completions pod `https://api.openai.com/v1/chat/completions`.
+- Gdy dla pytania włączony jest Web Research, PatMail używa OpenAI Responses API pod `https://api.openai.com/v1/responses` z narzędziem `web_search`.
+- Token OpenAI jest wpisywany w ustawieniach aplikacji i przechowywany lokalnie w bazie ustawień.
+- Model nie dostaje całej skrzynki. Backend przygotowuje ograniczony kontekst.
+- Kontekst składa się z:
+  - ostatnich ważnych wiadomości,
+  - dopasowań tekstowych z lokalnego cache SQLite,
+  - dat, kategorii, nadawców, podsumowań akcji, kwot, walut i terminów płatności, jeżeli są dostępne.
+- Akcje "Streść" i "Zadaj pytanie" przekazują aktualnie wybrany mail jako skoncentrowany kontekst do czatu.
+- Prompt systemowy instruuje model, żeby odpowiadał w tym samym języku, w którym użytkownik zadał ostatnie pytanie, niezależnie od języka interfejsu.
+- Historia czatu jest zapisywana lokalnie, wyświetlana od najnowszych wpisów i pokazuje w panelu ostatnie 10 tur z 7 dni.
 
-Czat jest celowo oddzielony od klasyfikatora. Wiekszy model jest sensowny do rozmowy i syntezy, ale nie ma sensu uzywac go do kazdej prostej decyzji klasyfikacyjnej.
+Czat jest celowo oddzielony od klasyfikatora. Większy model jest sensowny do rozmowy i syntezy, ale nie ma sensu używać go do każdej prostej decyzji klasyfikacyjnej.
 
 ### Hybrydowa klasyfikacja maili
 
-PatMail klasyfikuje nieprzeczytane maile do zakladek takich jak AI, zamowienia, platnosci, faktury i rachunki, zdrowie, RD, oferty pracy, bankowe, konta i bezpieczenstwo, software, zapisane oraz pozostale.
+PatMail klasyfikuje nieprzeczytane maile do zakładek takich jak AI, zamówienia, płatności, faktury i rachunki, zdrowie, RD, oferty pracy, bankowe, konta i bezpieczeństwo, software, zapisane oraz pozostałe.
 
 Obecna konfiguracja klasyfikatora:
 
 - Tryb: `hybrid`
 - Lokalny endpoint klasyfikatora: `http://127.0.0.1:11434/v1`
-- Domyslny lekki model: `tinydolphin:latest`
+- Domyślny lekki model: `tinydolphin:latest`
 - Timeout: `2500 ms`
 - Format API: OpenAI-compatible `/chat/completions`
 
-Kolejnosc klasyfikacji:
+Kolejność klasyfikacji:
 
-1. Najpierw sprawdzane sa reczne przypisania nadawcow do kategorii.
-2. Potem sprawdzane sa edytowalne reguly kategorii.
-3. Nastepnie dzialaja wbudowane fallbacki dla typowych przypadkow: faktury, platnosci, alerty bezpieczenstwa, newslettery, zamowienia, AI, banki i zdrowie.
-4. W trybie hybrydowym lokalny lekki LLM jest pytany tylko wtedy, gdy reguly nie daja pewnego wyniku.
-5. Warstwa ochronna pilnuje, zeby model nie nadpisal mocnych regul deterministycznych.
-6. Do widoku "Teraz wazne" trafiaja tylko maile z priorytetem `high` albo `medium`.
-7. Maile oznaczone jako niewazne sa pomijane przy kolejnych widokach waznej poczty.
+1. Najpierw sprawdzane są ręczne przypisania nadawców do kategorii.
+2. Potem sprawdzane są edytowalne reguły kategorii.
+3. Następnie działają wbudowane fallbacki dla typowych przypadków: faktury, płatności, alerty bezpieczeństwa, newslettery, zamówienia, AI, banki i zdrowie.
+4. W trybie hybrydowym lokalny lekki LLM jest pytany tylko wtedy, gdy reguły nie dają pewnego wyniku.
+5. Warstwa ochronna pilnuje, żeby model nie nadpisał mocnych reguł deterministycznych.
+6. Do widoku "Teraz ważne" trafiają tylko maile z priorytetem `high` albo `medium`.
+7. Maile oznaczone jako nieważne są pomijane przy kolejnych widokach ważnej poczty.
 
-Prompt klasyfikatora wymaga scislego JSON-a z polami:
+Prompt klasyfikatora wymaga ścisłego JSON-a z polami:
 
 - `priority`
 - `category`
@@ -465,136 +465,136 @@ Prompt klasyfikatora wymaga scislego JSON-a z polami:
 - `amount`
 - `currency`
 
-To glowny workflow AI w projekcie: tania i audytowalna warstwa regul wykonuje wiekszosc pracy, a lokalny LLM pomaga w przypadkach niejednoznacznych.
+To główny workflow AI w projekcie: tania i audytowalna warstwa reguł wykonuje większość pracy, a lokalny LLM pomaga w przypadkach niejednoznacznych.
 
 ### Role modeli
 
 | Funkcja | Model | Lokalizacja | Cel |
 | --- | --- | --- | --- |
-| Czat ze skrzynka | Konfigurowalny, konfiguracja portfolio/domyslna: `gpt-4.1-mini` | OpenAI API | Odpowiedzi konwersacyjne na podstawie kontekstu poczty |
-| Czat ze skrzynka z Web Research | Ten sam model czatu przez OpenAI Responses API + `web_search` | OpenAI API | Odpowiedzi laczace kontekst poczty z aktualnymi informacjami z sieci |
-| Fallback klasyfikacji maili | `tinydolphin:latest` | Lokalny endpoint OpenAI-compatible, domyslnie `http://127.0.0.1:11434/v1` | Lekka klasyfikacja i podsumowanie JSON dla niejednoznacznych maili |
-| Wczesniej planowany model LAN | GPT-OSS-20B | Nieaktywny w obecnej implementacji czatu | Opcja architektoniczna, ale obecny czat uzywa OpenAI API |
+| Czat ze skrzynką | Konfigurowalny, konfiguracja portfolio/domyślna: `gpt-4.1-mini` | OpenAI API | Odpowiedzi konwersacyjne na podstawie kontekstu poczty |
+| Czat ze skrzynką z Web Research | Ten sam model czatu przez OpenAI Responses API + `web_search` | OpenAI API | Odpowiedzi łączące kontekst poczty z aktualnymi informacjami z sieci |
+| Fallback klasyfikacji maili | `tinydolphin:latest` | Lokalny endpoint OpenAI-compatible, domyślnie `http://127.0.0.1:11434/v1` | Lekka klasyfikacja i podsumowanie JSON dla niejednoznacznych maili |
+| Wcześniej planowany model LAN | GPT-OSS-20B | Nieaktywny w obecnej implementacji czatu | Opcja architektoniczna, ale obecny czat używa OpenAI API |
 
 ## Archiwizacja faktur
 
-Skaner faktur tworzy lokalne archiwum faktur i potwierdzen dla subskrypcji oraz narzedzi uzywanych komercyjnie.
+Skaner faktur tworzy lokalne archiwum faktur i potwierdzeń dla subskrypcji oraz narzędzi używanych komercyjnie.
 
-Glowne zachowanie:
+Główne zachowanie:
 
-- Skanuje podlaczone konta Gmail.
-- Obsluguje pierwszy historyczny backfill, domyslnie cztery lata wstecz.
+- Skanuje podłączone konta Gmail.
+- Obsługuje pierwszy historyczny backfill, domyślnie cztery lata wstecz.
 - Uruchamia wyszukiwania per dostawca.
-- Zapisuje pliki w folderach nazwanych domena dostawcy, na przyklad `provider-a.example`, `provider-b.example` albo `billing-service.example`.
-- Nazwy plikow zaczynaja sie od miesiaca faktury w formacie `YYYY-MM`.
-- Jezeli nie da sie pewnie ustalic miesiaca wystawienia z dokumentu, aplikacja uzywa daty maila.
-- Zapisane i zduplikowane zalaczniki sa indeksowane w SQLite.
-- Aplikacja ma widok indeksu faktur oraz narzedzia naprawy indeksu.
+- Zapisuje pliki w folderach nazwanych domeną dostawcy, na przykład `provider-a.example`, `provider-b.example` albo `billing-service.example`.
+- Nazwy plików zaczynają się od miesiąca faktury w formacie `YYYY-MM`.
+- Jeżeli nie da się pewnie ustalić miesiąca wystawienia z dokumentu, aplikacja używa daty maila.
+- Zapisane i zduplikowane załączniki są indeksowane w SQLite.
+- Aplikacja ma widok indeksu faktur oraz narzędzia naprawy indeksu.
 
-Reguly dostawcow obejmuja:
+Reguły dostawców obejmują:
 
-- docelowa domene archiwum,
+- docelową domenę archiwum,
 - fragmenty domen nadawcy,
 - konkretne adresy nadawcy lub reply-to,
 - frazy wyszukiwania,
 - tryb dopasowania tylko po nadawcy,
-- opcjonalne zapisywanie tresci maila jako PDF dla dostawcow bez zalaczonych faktur.
+- opcjonalne zapisywanie treści maila jako PDF dla dostawców bez załączonych faktur.
 
-Domyslne szablony dostawcow obejmuja typowe wzorce faktur dla subskrypcji, SaaS, zakupow przez app-store, posrednikow platnosci i narzedzi developerskich, ale konkretna lista dostawcow jest konfiguracja lokalna uzytkownika.
+Domyślne szablony dostawców obejmują typowe wzorce faktur dla subskrypcji, SaaS, zakupów przez app-store, pośredników płatności i narzędzi developerskich, ale konkretna lista dostawców jest konfiguracją lokalną użytkownika.
 
-Obsluga duplikatow:
+Obsługa duplikatów:
 
-- Przetworzone zalaczniki sa indeksowane lokalnie.
-- Klucz deduplikacji uwzglednia identyfikator wiadomosci Gmail/IMAP, identyfikator zalacznika i hash pliku, gdy jest dostepny.
-- Aplikacja ma narzedzia do naprawy indeksu po recznym usunieciu lokalnych plikow faktur.
+- Przetworzone załączniki są indeksowane lokalnie.
+- Klucz deduplikacji uwzględnia identyfikator wiadomości Gmail/IMAP, identyfikator załącznika i hash pliku, gdy jest dostępny.
+- Aplikacja ma narzędzia do naprawy indeksu po ręcznym usunięciu lokalnych plików faktur.
 
-## Widok waznej poczty
+## Widok ważnej poczty
 
-Glowne okno PatMaila jest pomyslane jako spokojniejsza alternatywa dla ciaglego siedzenia w Gmailu.
+Główne okno PatMaila jest pomyślane jako spokojniejsza alternatywa dla ciągłego siedzenia w Gmailu.
 
 Funkcje:
 
-- Zakladki kategorii z licznikami.
-- Zakladka "pozostale" dla nieprzeczytanych maili, ktore nie zostaly zaklasyfikowane jako wazne.
-- Zakladka "zapisane" dla maili odlozonych na pozniej, niezaleznie od tego, czy sa przeczytane.
-- Widok dzielony: lista maili, podglad wybranej wiadomosci i czat ze skrzynka.
-- Przeciagane separatory do zmiany szerokosci listy, podgladu, panelu czatu i panelu profili.
-- Podglad HTML z normalizacja CSS, zeby dlugie linie zawijaly sie w oknie.
-- Nadawca, skrzynka docelowa, dokladna data i godzina oraz link do Gmaila na liscie.
-- Sekcja zalacznikow nad trescia maila z akcjami otworz/pobierz.
-- Akcje AI dla wybranego maila: streszczenie aktualnej wiadomosci albo uzycie jej jako kontekstu dla kolejnego pytania.
-- Okno odpowiedzi pod podgladem wybranej wiadomosci.
+- Zakładki kategorii z licznikami.
+- Zakładka "pozostałe" dla nieprzeczytanych maili, które nie zostały zaklasyfikowane jako ważne.
+- Zakładka "zapisane" dla maili odłożonych na później, niezależnie od tego, czy są przeczytane.
+- Widok dzielony: lista maili, podgląd wybranej wiadomości i czat ze skrzynką.
+- Przeciągane separatory do zmiany szerokości listy, podglądu, panelu czatu i panelu profili.
+- Podgląd HTML z normalizacją CSS, żeby długie linie zawijały się w oknie.
+- Nadawca, skrzynka docelowa, dokładna data i godzina oraz link do Gmaila na liście.
+- Sekcja załączników nad treścią maila z akcjami otwórz/pobierz.
+- Akcje AI dla wybranego maila: streszczenie aktualnej wiadomości albo użycie jej jako kontekstu dla kolejnego pytania.
+- Okno odpowiedzi pod podglądem wybranej wiadomości.
 - Oznaczanie pojedynczego maila jako przeczytany.
 - Zbiorcze "oznacz widoczne jako przeczytane" tylko dla aktualnie widocznej strony.
-- Stronicowanie duzych kategorii.
-- Akcja "Niewazne" do deklasyfikacji maili, ktore nie powinny wracac do waznych zakladek.
+- Stronicowanie dużych kategorii.
+- Akcja "Nieważne" do deklasyfikacji maili, które nie powinny wracać do ważnych zakładek.
 
 Zachowanie statusu przeczytania:
 
-- Przy odswiezaniu PatMail sprawdza obecnie sledzone maile w zrodle poczty.
-- Jezeli mail zostal przeczytany w Gmailu albo innej aplikacji, znika z nieprzeczytanych waznych zakladek.
-- Zapisane maile pozostaja widoczne nawet po przeczytaniu.
-- Usuniecie przeczytanego maila z zapisanych sprawia, ze znika z aktywnych widokow nieprzeczytanych.
+- Przy odświeżaniu PatMail sprawdza obecnie śledzone maile w źródle poczty.
+- Jeżeli mail został przeczytany w Gmailu albo innej aplikacji, znika z nieprzeczytanych ważnych zakładek.
+- Zapisane maile pozostają widoczne nawet po przeczytaniu.
+- Usunięcie przeczytanego maila z zapisanych sprawia, że znika z aktywnych widoków nieprzeczytanych.
 
 ## Historia operacji i cofanie
 
-PatMail zapisuje historie ostatnich operacji na poczcie.
+PatMail zapisuje historię ostatnich operacji na poczcie.
 
-Przyklady:
+Przykłady:
 
 - Oznaczenie jednego maila jako przeczytany.
 - Oznaczenie widocznych maili jako przeczytane.
 - Zapisanie maila.
-- Usuniecie maila z zapisanych.
-- Oznaczenie maila jako niewazny.
+- Usunięcie maila z zapisanych.
+- Oznaczenie maila jako nieważny.
 
-Widok historii pokazuje ostatnie operacje i pozwala cofac wspierane akcje, w tym zmiany przeczytane/nieprzeczytane, jezeli backend pocztowy to obsluguje.
+Widok historii pokazuje ostatnie operacje i pozwala cofać wspierane akcje, w tym zmiany przeczytane/nieprzeczytane, jeżeli backend pocztowy to obsługuje.
 
 ## Profile
 
-Profile sa niezaleznymi przestrzeniami roboczymi.
+Profile są niezależnymi przestrzeniami roboczymi.
 
-Kazdy profil ma osobne:
+Każdy profil ma osobne:
 
 - konta Gmail,
-- konfiguracje IMAP/OAuth,
-- jezyk interfejsu,
-- waznych nadawcow,
-- reguly nadawca -> kategoria,
-- edytowalne reguly kategorii,
-- dostawcow faktur,
+- konfigurację IMAP/OAuth,
+- język interfejsu,
+- ważnych nadawców,
+- reguły nadawca -> kategoria,
+- edytowalne reguły kategorii,
+- dostawców faktur,
 - ustawienia archiwum,
 - indeks przetworzonych faktur,
-- stan waznej poczty,
+- stan ważnej poczty,
 - zapisane i ignorowane maile,
-- historie czatu,
-- historie operacji.
+- historię czatu,
+- historię operacji.
 
-Dzieki temu mozna rozdzielic konfiguracje prywatna, firmowa, kliencka albo testowa.
+Dzięki temu można rozdzielić konfigurację prywatną, firmową, kliencką albo testową.
 
-## Laczenie z Gmail
+## Łączenie z Gmail
 
-PatMail obsluguje dwie metody polaczenia z Gmail.
+PatMail obsługuje dwie metody połączenia z Gmail.
 
 ### Gmail IMAP
 
-Rekomendowane do dlugotrwalego uzytku prywatnego, bo omija wygasanie refresh tokenow Google OAuth w trybie testowym.
+Rekomendowane do długotrwałego użytku prywatnego, bo omija wygasanie refresh tokenów Google OAuth w trybie testowym.
 
-Dla kont Gmail z 2FA nalezy uzyc hasla aplikacji Gmail, a nie glownego hasla do konta.
+Dla kont Gmail z 2FA należy użyć hasła aplikacji Gmail, a nie głównego hasła do konta.
 
-Domyslne ustawienia IMAP:
+Domyślne ustawienia IMAP:
 
 - host: `imap.gmail.com`
 - port: `993`
-- SSL/TLS: wlaczone
+- SSL/TLS: włączone
 
-Warstwa IMAP uzywa `imapflow` i ma osobne timeouty dla polaczenia, powitania serwera, socketu, operacji i wylogowania. Timeouty socketu IMAP sa zamieniane na ostrzezenia per konto zamiast wysypywac proces Electron.
+Warstwa IMAP używa `imapflow` i ma osobne timeouty dla połączenia, powitania serwera, socketu, operacji i wylogowania. Timeouty socketu IMAP są zamieniane na ostrzeżenia per konto zamiast wysypywać proces Electron.
 
-Odpowiedzi z kont IMAP sa wysylane przez SMTP. Dla Gmail IMAP PatMail wyprowadza `smtp.gmail.com` z konfiguracji IMAP, uzywa portu `465` i loguje sie tym samym haslem aplikacji Gmail.
+Odpowiedzi z kont IMAP są wysyłane przez SMTP. Dla Gmail IMAP PatMail wyprowadza `smtp.gmail.com` z konfiguracji IMAP, używa portu `465` i loguje się tym samym hasłem aplikacji Gmail.
 
 ### Google OAuth
 
-OAuth pozostaje dostepny dla kont podlaczanych przez przegladarke.
+OAuth pozostaje dostępny dla kont podłączanych przez przeglądarkę.
 
 Wymagany redirect URI:
 
@@ -602,13 +602,13 @@ Wymagany redirect URI:
 http://127.0.0.1:8797/api/auth/google/callback
 ```
 
-Dane klienta OAuth mozna wpisac w ustawieniach aplikacji albo przekazac przez `.env`.
+Dane klienta OAuth można wpisać w ustawieniach aplikacji albo przekazać przez `.env`.
 
-Do odpowiadania przez konta OAuth klient Google musi miec uprawnienie wysylania Gmail (`gmail.send`). Jezeli tego zakresu brakuje, PatMail poprosi o ponowne podlaczenie danego konta.
+Do odpowiadania przez konta OAuth klient Google musi mieć uprawnienie wysyłania Gmail (`gmail.send`). Jeżeli tego zakresu brakuje, PatMail poprosi o ponowne podłączenie danego konta.
 
-## Dane lokalne i prywatnosc
+## Dane lokalne i prywatność
 
-PatMail jest aplikacja local-first.
+PatMail jest aplikacją local-first.
 
 Lokalny stan jest przechowywany w SQLite, zwykle tutaj:
 
@@ -616,40 +616,40 @@ Lokalny stan jest przechowywany w SQLite, zwykle tutaj:
 .local/app.sqlite
 ```
 
-Zapisywane dane obejmuja:
+Zapisywane dane obejmują:
 
 - rekordy kont,
-- tokeny OAuth albo konfiguracje IMAP z haslem aplikacji dla podlaczonych kont,
+- tokeny OAuth albo konfigurację IMAP z hasłem aplikacji dla podłączonych kont,
 - ustawienia profili,
-- reguly dostawcow faktur,
-- cache waznej poczty,
+- reguły dostawców faktur,
+- cache ważnej poczty,
 - stan zapisanych i ignorowanych maili,
-- historie czatu,
-- historie operacji,
-- indeks przetworzonych faktur.
-- zapisany stan UI, w tym aktywny widok, aktywna zakladka kategorii, wybrany mail i szerokosci kolumn.
+- historię czatu,
+- historię operacji,
+- indeks przetworzonych faktur,
+- zapisany stan UI, w tym aktywny widok, aktywna zakładka kategorii, wybrany mail i szerokości kolumn.
 
-Sekrety i credentiale nie sa commitowane do repozytorium. Plik `.env` jest celowo wykluczony z Git. Buildy release nalezy traktowac jako lokalne/prywatne buildy portfolio, dopoki nie zostanie dodany produkcyjny proces podpisywania i notaryzacji.
+Sekrety i credentiale nie są commitowane do repozytorium. Plik `.env` jest celowo wykluczony z Git. Buildy release należy traktować jako lokalne/prywatne buildy portfolio, dopóki nie zostanie dodany produkcyjny proces podpisywania i notaryzacji.
 
 ## Stack technologiczny
 
-- Electron jako desktopowa powloka macOS.
+- Electron jako desktopowa powłoka macOS.
 - React i TypeScript dla UI.
 - Express jako lokalne API backendowe.
 - SQLite jako lokalna baza danych.
-- Gmail API i Google OAuth dla polaczenia przez przegladarke.
-- IMAP przez `imapflow` dla trwalego dostepu do Gmail.
-- `mailparser` do parsowania MIME, naglowkow, tresci i zalacznikow.
-- `pdf-parse` oraz wlasna logika do ekstrakcji metadanych faktur.
-- OpenAI Chat Completions dla czatu ze skrzynka.
-- OpenAI Responses API z `web_search` dla opcjonalnego Web Research w czacie ze skrzynka.
+- Gmail API i Google OAuth dla połączenia przez przeglądarkę.
+- IMAP przez `imapflow` dla trwałego dostępu do Gmail.
+- `mailparser` do parsowania MIME, nagłówków, treści i załączników.
+- `pdf-parse` oraz własna logika do ekstrakcji metadanych faktur.
+- OpenAI Chat Completions dla czatu ze skrzynką.
+- OpenAI Responses API z `web_search` dla opcjonalnego Web Research w czacie ze skrzynką.
 - Lokalny endpoint OpenAI-compatible dla lekkiej klasyfikacji maili.
-- SMTP dla odpowiedzi z kont podlaczonych przez IMAP.
+- SMTP dla odpowiedzi z kont podłączonych przez IMAP.
 - `electron-builder` do pakowania aplikacji macOS i DMG.
 
 ## Development
 
-Instalacja zaleznosci:
+Instalacja zależności:
 
 ```bash
 npm install
@@ -667,7 +667,7 @@ Uruchomienie web + API w terminalu:
 npm run dev
 ```
 
-Otworz:
+Otwórz:
 
 ```text
 http://127.0.0.1:5181
@@ -695,7 +695,7 @@ Build wersji desktopowej macOS:
 npm run desktop:build
 ```
 
-Artefakty macOS powstaja tutaj:
+Artefakty macOS powstają tutaj:
 
 ```text
 release/mac-arm64/PatMail.app
@@ -704,10 +704,10 @@ release/PatMail-0.1.1-arm64.dmg
 
 ## Uwagi o release
 
-Obecny build macOS jest przeznaczony do prywatnego uzytku portfolio i ewaluacji. Jest podpisany lokalnie/ad-hoc przez proces builda i nie jest notarized przez Apple. Na innym Macu Gatekeeper moze wymagac recznego otwarcia przez Finder albo Ustawienia systemowe.
+Obecny build macOS jest przeznaczony do prywatnego użytku portfolio i ewaluacji. Jest podpisany lokalnie/ad-hoc przez proces builda i nie jest znotaryzowany przez Apple. Na innym Macu Gatekeeper może wymagać ręcznego otwarcia przez Finder albo Ustawienia systemowe.
 
 ## Licencja
 
-Projekt jest udostepniony na niestandardowej licencji source-available non-commercial evaluation. Zezwala ona na uzytek osobisty, edukacyjny, portfolio oraz ewaluacje rekrutacyjna, ale zabrania uzytku komercyjnego, odsprzedazy, uzycia jako SaaS, redystrybucji dla zysku oraz wlaczania do produktow komercyjnych.
+Projekt jest udostępniony na niestandardowej licencji source-available non-commercial evaluation. Zezwala ona na użytek osobisty, edukacyjny, portfolio oraz ewaluację rekrutacyjną, ale zabrania użytku komercyjnego, odsprzedaży, użycia jako SaaS, redystrybucji dla zysku oraz włączania do produktów komercyjnych.
 
 Zobacz [LICENSE.md](LICENSE.md).
