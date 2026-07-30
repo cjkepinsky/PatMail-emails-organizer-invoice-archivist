@@ -342,7 +342,7 @@ The macOS app and DMG are generated under:
 
 ```text
 release/mac-arm64/PatMail.app
-release/PatMail-0.1.0-arm64.dmg
+release/PatMail-0.1.1-arm64.dmg
 ```
 
 ## Release Notes
@@ -699,7 +699,7 @@ Artefakty macOS powstaja tutaj:
 
 ```text
 release/mac-arm64/PatMail.app
-release/PatMail-0.1.0-arm64.dmg
+release/PatMail-0.1.1-arm64.dmg
 ```
 
 ## Uwagi o release
