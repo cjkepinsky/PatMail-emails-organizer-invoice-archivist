@@ -43,6 +43,7 @@ import {
   cleanupInvoiceIndex,
   deleteImportantItemByMessage,
   getMailItemDetail,
+  assignSenderToCategory,
   setMailIgnored,
   setMailSaved,
   setActiveProfile,
@@ -710,6 +711,33 @@ app.post("/api/mail/ignore", (req, res) => {
     otherUnreadItems: listOtherUnreadMailItems(),
     savedMailItems: listSavedMailItems()
   });
+});
+
+app.post("/api/mail/assign-sender-category", (req, res) => {
+  const language = appLanguage();
+  const accountId = String(req.body?.accountId || "");
+  const messageId = String(req.body?.messageId || "");
+  const category = String(req.body?.category || "").trim();
+  if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
+  if (!category) {
+    return res.status(400).json({
+      error: language === "en" ? "Choose a category for this sender." : "Wybierz kategorię dla tego nadawcy."
+    });
+  }
+
+  try {
+    const result = assignSenderToCategory({ accountId, messageId, category });
+    res.json({
+      ok: true,
+      ...result,
+      settings: safeSettings(),
+      importantItems: listImportantItems(),
+      otherUnreadItems: listOtherUnreadMailItems(),
+      savedMailItems: listSavedMailItems()
+    });
+  } catch (error) {
+    res.status(400).json({ error: localizeKnownError(error, language) });
+  }
 });
 
 app.get("/api/llm/status", async (_req, res) => {

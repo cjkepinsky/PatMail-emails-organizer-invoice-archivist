@@ -710,6 +710,32 @@ small {
   gap: 8px;
 }
 
+.sender-category-actions {
+  display: grid;
+  flex: 1 0 100%;
+  gap: 8px;
+  min-width: min(100%, 260px);
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.sender-category-actions label {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.sender-category-actions label span,
+.sender-category-actions small {
+  color: var(--muted-strong);
+}
+
+.sender-category-actions .button {
+  justify-self: end;
+}
+
 .preview-header h3 {
   margin: 10px 0 6px;
   line-height: 1.25;

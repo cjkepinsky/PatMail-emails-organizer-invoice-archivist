@@ -350,6 +350,11 @@ const TEXT = {
     save: "Zapisz",
     summarizeMail: "Streść",
     askAboutMail: "Zadaj pytanie",
+    senderCategory: "Nadawca → kategoria",
+    assignSenderCategory: "Przypisz nadawcę",
+    assigningSenderCategory: "Przypisuję...",
+    senderCategoryHelp: "Od teraz maile od tego nadawcy będą trafiać do wybranej kategorii w tym profilu.",
+    senderCategorySaved: "Nadawca {sender} będzie trafiać do kategorii „{category}”. Przeniesiono {count} maili.",
     chatContextActive: "Kontekst maila",
     clearChatContext: "Wyczyść",
     chatContextReady: "Czat będzie teraz odpowiadał w kontekście wybranego maila.",
@@ -547,6 +552,11 @@ const TEXT = {
     save: "Save",
     summarizeMail: "Summarize",
     askAboutMail: "Ask question",
+    senderCategory: "Sender → category",
+    assignSenderCategory: "Assign sender",
+    assigningSenderCategory: "Assigning...",
+    senderCategoryHelp: "From now on, mail from this sender will land in the selected category in this profile.",
+    senderCategorySaved: "Sender {sender} will land in “{category}”. Moved {count} messages.",
     chatContextActive: "Mail context",
     clearChatContext: "Clear",
     chatContextReady: "Mailbox chat will now answer in the context of the selected email.",
@@ -679,6 +689,8 @@ function App() {
   const [selectedImportantId, setSelectedImportantId] = useState("");
   const [shouldRevealSelectedMail, setShouldRevealSelectedMail] = useState(false);
   const [selectedImportant, setSelectedImportant] = useState<ImportantDetail | null>(null);
+  const [senderAssignCategory, setSenderAssignCategory] = useState("");
+  const [senderAssigning, setSenderAssigning] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [replySending, setReplySending] = useState(false);
   const [bulkReadRunning, setBulkReadRunning] = useState(false);
@@ -1004,8 +1016,22 @@ function App() {
   const categoryRules = settings?.categoryRules || [];
   const selectedRule = categoryRules.find(rule => rule.id === selectedRuleId) || categoryRules[0] || null;
   const selectedProvider = providers.find(provider => provider.id === selectedProviderId) || providers[0] || null;
+  const assignableSenderCategories = useMemo(
+    () => parseSettingsList(settings?.importantCategories || "").filter(category => !isReservedMailCategory(category)),
+    [settings?.importantCategories]
+  );
   const activeProfile = profiles.find(profile => profile.id === activeProfileId) || null;
   const activeProfileName = activeProfile ? displayProfileName(activeProfile, t) : t.activeProfile;
+
+  useEffect(() => {
+    if (assignableSenderCategories.length === 0) {
+      if (senderAssignCategory) setSenderAssignCategory("");
+      return;
+    }
+    if (!assignableSenderCategories.some(category => category === senderAssignCategory)) {
+      setSenderAssignCategory(assignableSenderCategories[0]);
+    }
+  }, [assignableSenderCategories, senderAssignCategory]);
 
   function resetProfileSidebarWidth() {
     setProfileSidebarWidth(DEFAULT_PROFILE_SIDEBAR_WIDTH);
@@ -1393,6 +1419,51 @@ function App() {
         ? "Mail was hidden from important lists and will not return in future syncs."
         : "Mail został ukryty z list ważnych i nie będzie wracał przy kolejnych synchronizacjach."
     );
+  }
+
+  async function assignSelectedSenderToCategory() {
+    if (!selectedImportant || !senderAssignCategory || senderAssigning) return;
+    setSenderAssigning(true);
+    setStatus(language === "en" ? "Assigning sender to category..." : "Przypisuję nadawcę do kategorii...");
+    try {
+      const currentMailKey = mailKey(selectedImportant);
+      const response = await api("/api/mail/assign-sender-category", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: selectedImportant.accountId,
+          messageId: selectedImportant.messageId,
+          category: senderAssignCategory
+        })
+      });
+      if (response.settings) setSettings(response.settings);
+      applyMailFeed(response);
+      setSelectedCategory(response.category || senderAssignCategory);
+      setSelectedImportantId(currentMailKey);
+      setShouldRevealSelectedMail(true);
+      setSelectedImportant(current =>
+        current
+          ? {
+              ...current,
+              category: response.category || senderAssignCategory,
+              priority: "high",
+              actionRequired:
+                language === "en"
+                  ? "Sender manually assigned to this category."
+                  : "Nadawca przypisany ręcznie do tej kategorii."
+            }
+          : current
+      );
+      setToast(formatText(t.senderCategorySaved, {
+        sender: response.sender || selectedImportant.fromEmail,
+        category: displayCategoryLabel(response.category || senderAssignCategory, language),
+        count: String(response.movedCount || 0)
+      }));
+      setStatus("");
+    } catch (error) {
+      setStatus(apiErrorMessage(error, language));
+    } finally {
+      setSenderAssigning(false);
+    }
   }
 
   function mailContextFromDetail(mail: ImportantDetail): MailChatContext {
@@ -2633,6 +2704,32 @@ function App() {
                           {t.askAboutMail}
                         </button>
                       </div>
+                      {selectedCategory === "pozostałe" && !selectedImportant.saved && assignableSenderCategories.length > 0 && (
+                        <div className="sender-category-actions">
+                          <label>
+                            <span>{t.senderCategory}</span>
+                            <select
+                              value={senderAssignCategory}
+                              onChange={event => setSenderAssignCategory(event.target.value)}
+                            >
+                              {assignableSenderCategories.map(category => (
+                                <option key={category} value={category}>
+                                  {displayCategoryLabel(category, language)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <button
+                            className="button secondary"
+                            disabled={senderAssigning || !senderAssignCategory}
+                            onClick={() => void assignSelectedSenderToCategory()}
+                            type="button"
+                          >
+                            {senderAssigning ? t.assigningSenderCategory : t.assignSenderCategory}
+                          </button>
+                          <small>{t.senderCategoryHelp}</small>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {selectedImportant.actionRequired && (
@@ -2814,6 +2911,10 @@ function apiErrorMessage(error: unknown, language: UiLanguage = "pl") {
   }
 }
 
+function formatText(template: string, values: Record<string, string>) {
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => values[key] || "");
+}
+
 function browserDefaultLanguage(): UiLanguage {
   const locale = navigator.language || navigator.languages?.[0] || "";
   return /^pl(?:[-_]|$)/i.test(locale.trim()) ? "pl" : "en";
@@ -2884,6 +2985,9 @@ function localizeServerMessage(message: string, language: UiLanguage): string {
     [/^Tej operacji nie da się jeszcze cofnąć\.$/i, "This operation cannot be undone yet."],
     [/^Wpisz pytanie do czatu\.$/i, "Enter a chat question."],
     [/^Wiadomość przypisana ręcznie do kategorii\.$/i, "Message manually assigned to a category."],
+    [/^Nadawca przypisany ręcznie do tej kategorii\.$/i, "Sender manually assigned to this category."],
+    [/^Wybierz kategorię ważnych maili\.$/i, "Choose an important-mail category."],
+    [/^Nie udało się ustalić adresu nadawcy\.$/i, "Could not determine the sender address."],
     [/^Wiadomość może wymagać uwagi\.$/i, "Message may need attention."],
     [/^Sprawdź wiadomość od tego nadawcy\.$/i, "Review the message from this sender."],
     [/^Sprawdź płatność albo transakcję\.$/i, "Check the payment or transaction."],
@@ -2960,6 +3064,26 @@ function displayCategoryLabel(category: string, language: UiLanguage) {
   const normalized = category.toLowerCase();
   if (language !== "en") return CATEGORY_LABELS_PL[normalized] || category;
   return CATEGORY_LABELS_EN[normalized] || category;
+}
+
+function parseSettingsList(value: string) {
+  return value
+    .split(/\n|,/)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function isReservedMailCategory(category: string) {
+  const normalized = normalizeCategoryKey(category);
+  return normalized === "pozostale" || normalized === "remaining" || normalized === "zapisane" || normalized === "saved";
+}
+
+function normalizeCategoryKey(category: string) {
+  return category
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
 }
 
 function displayProfileName(profile: Profile, t: (typeof TEXT)[UiLanguage]) {

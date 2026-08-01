@@ -591,6 +591,10 @@ function normalizeProfileName(name: string) {
   return normalized || "Nowy profil";
 }
 
+function normalizeCategoryName(name: string) {
+  return name.trim().toLowerCase();
+}
+
 function parseJsonListSetting(key: string, fallback: string[] = []) {
   return parseJsonListSettingForProfile(getActiveProfileId(), key, fallback);
 }
@@ -1573,6 +1577,130 @@ export function setMailIgnored(accountId: string, messageId: string, ignored: bo
     messageId,
     profileId
   );
+}
+
+export function assignSenderToCategory(input: { accountId: string; messageId: string; category: string }) {
+  const profileId = getActiveProfileId();
+  const category = input.category.trim();
+  if (!category || normalizeCategoryName(category) === normalizeCategoryName("pozostałe") || normalizeCategoryName(category) === normalizeCategoryName("zapisane")) {
+    throw new Error("Wybierz kategorię ważnych maili.");
+  }
+
+  const source = getSavedMailSnapshotSource(input.accountId, input.messageId);
+  const sender = source?.from_email ? String(source.from_email).trim().toLowerCase() : "";
+  if (!sender) throw new Error("Nie udało się ustalić adresu nadawcy.");
+
+  const categories = parseJsonListSettingForProfile(profileId, "importantCategories", defaultImportantCategories);
+  if (!categories.some(item => normalizeCategoryName(item) === normalizeCategoryName(category))) {
+    categories.push(category);
+    setProfileSetting(profileId, "importantCategories", JSON.stringify(categories));
+  }
+
+  const rules = parseSenderCategoryRulesSettingForProfile(profileId);
+  const existing = rules.find(rule => rule.sender.toLowerCase() === sender);
+  if (existing) {
+    existing.category = category;
+  } else {
+    rules.push({ sender, category });
+  }
+  setProfileSetting(profileId, "senderCategoryRules", JSON.stringify(rules));
+
+  const rows = db
+    .prepare(
+      `SELECT
+        mail_cache.account_id,
+        mail_cache.message_id,
+        mail_cache.thread_id,
+        mail_cache.from_email,
+        mail_cache.from_name,
+        mail_cache.subject,
+        mail_cache.snippet,
+        mail_cache.received_at
+       FROM mail_cache
+       LEFT JOIN saved_mail_items
+         ON saved_mail_items.account_id = mail_cache.account_id
+        AND saved_mail_items.message_id = mail_cache.message_id
+        AND saved_mail_items.profile_id = mail_cache.profile_id
+       LEFT JOIN ignored_mail_items
+         ON ignored_mail_items.account_id = mail_cache.account_id
+        AND ignored_mail_items.message_id = mail_cache.message_id
+        AND ignored_mail_items.profile_id = mail_cache.profile_id
+       WHERE mail_cache.profile_id = ?
+         AND mail_cache.is_unread = 1
+         AND lower(mail_cache.from_email) = ?
+         AND saved_mail_items.id IS NULL
+         AND ignored_mail_items.id IS NULL`
+    )
+    .all(profileId, sender) as Record<string, unknown>[];
+
+  const classification = {
+    priority: "high",
+    category,
+    summary: "",
+    action_required: "",
+    due_date: null,
+    amount: null,
+    currency: null
+  };
+  const actionRequired = getAppSettings().language === "en"
+    ? "Sender manually assigned to this category."
+    : "Nadawca przypisany ręcznie do tej kategorii.";
+  const upsert = db.prepare(
+    `INSERT INTO important_items(
+      id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
+      received_at, priority, category, summary, action_required, due_date, amount, currency,
+      raw_json, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'high', ?, ?, ?, NULL, NULL, NULL, ?, ?)
+    ON CONFLICT(account_id, message_id) DO UPDATE SET
+      profile_id = excluded.profile_id,
+      thread_id = excluded.thread_id,
+      from_email = excluded.from_email,
+      from_name = excluded.from_name,
+      subject = excluded.subject,
+      snippet = excluded.snippet,
+      received_at = excluded.received_at,
+      priority = excluded.priority,
+      category = excluded.category,
+      summary = excluded.summary,
+      action_required = excluded.action_required,
+      raw_json = excluded.raw_json`
+  );
+
+  let movedCount = 0;
+  for (const row of rows) {
+    const subject = String(row.subject || "");
+    const rawJson = JSON.stringify({
+      ...classification,
+      summary: subject,
+      action_required: actionRequired
+    });
+    const result = upsert.run(
+      randomUUID(),
+      profileId,
+      String(row.account_id || ""),
+      String(row.message_id || ""),
+      String(row.thread_id || ""),
+      String(row.from_email || ""),
+      String(row.from_name || ""),
+      subject,
+      String(row.snippet || ""),
+      String(row.received_at || now()),
+      category,
+      subject,
+      actionRequired,
+      rawJson,
+      now()
+    ) as { changes?: number };
+    if (Number(result.changes || 0) > 0) movedCount += 1;
+  }
+
+  return {
+    sender,
+    category,
+    movedCount,
+    rules
+  };
 }
 
 export function setMailSaved(accountId: string, messageId: string, saved: boolean) {
