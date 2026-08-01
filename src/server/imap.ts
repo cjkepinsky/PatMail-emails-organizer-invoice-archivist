@@ -60,11 +60,13 @@ export async function verifyImapConfig(config: ImapAccountConfig) {
 export async function listImapMessageIds(
   account: GmailAccount,
   query: string,
-  onPage?: (count: number) => void
+  onPage?: (count: number) => void,
+  limit?: number
 ) {
   return withMailbox(account, undefined, async (client, mailbox, uidValidity) => {
     const result = (await searchMessages(client, query)).sort((left, right) => right - left);
-    const ids = result.map(uid => encodeImapMessageId({ mailbox, uidValidity, uid }));
+    const limited = limit ? result.slice(0, limit) : result;
+    const ids = limited.map(uid => encodeImapMessageId({ mailbox, uidValidity, uid }));
     onPage?.(ids.length);
     return ids;
   });
@@ -79,6 +81,43 @@ export async function getImapParsedMessage(account: GmailAccount, messageId: str
     const id = encodeImapMessageId({ mailbox, uidValidity, uid: fetched.uid || ref.uid });
     return parsedMailToMessage(parsed, fetched, id);
   });
+}
+
+export async function getImapParsedMessages(account: GmailAccount, messageIds: string[]) {
+  const messages = new Map<string, ParsedGmailMessage>();
+  const groups = groupImapMessageRefs(messageIds);
+
+  for (const [mailboxName, refs] of groups) {
+    await withMailbox(account, mailboxName, async (client, mailbox, uidValidity) => {
+      const refsByUid = refsByUidMap(refs);
+      const uidSet = imapUidSet(refs);
+      if (!uidSet) return;
+
+      for await (const fetched of client.fetch(
+        uidSet,
+        {
+          source: true,
+          uid: true,
+          flags: true,
+          internalDate: true,
+          threadId: true
+        },
+        { uid: true }
+      )) {
+        const uid = Number(fetched.uid || 0);
+        if (!uid) continue;
+        const parsed = await simpleParser(fetched.source || Buffer.alloc(0));
+        const canonicalId = encodeImapMessageId({ mailbox, uidValidity, uid });
+        const message = parsedMailToMessage(parsed, fetched, canonicalId);
+
+        for (const ref of refsByUid.get(uid) || []) {
+          messages.set(ref.messageId, { ...message, id: ref.messageId });
+        }
+      }
+    });
+  }
+
+  return messages;
 }
 
 export async function downloadImapAttachment(account: GmailAccount, messageId: string, attachmentId: string) {
@@ -113,6 +152,34 @@ export async function isImapMessageUnread(account: GmailAccount, messageId: stri
     if (!fetched) return false;
     return !Boolean(fetched.flags?.has("\\Seen"));
   });
+}
+
+export async function getImapUnreadStates(account: GmailAccount, messageIds: string[]) {
+  const states = new Map<string, boolean>();
+  const groups = groupImapMessageRefs(messageIds);
+
+  for (const [mailboxName, refs] of groups) {
+    await withMailbox(account, mailboxName, async client => {
+      const refsByUid = refsByUidMap(refs);
+      const uidSet = imapUidSet(refs);
+      if (!uidSet) return;
+
+      for await (const fetched of client.fetch(uidSet, { uid: true, flags: true }, { uid: true })) {
+        const uid = Number(fetched.uid || 0);
+        if (!uid) continue;
+        const unread = !Boolean(fetched.flags?.has("\\Seen"));
+        for (const ref of refsByUid.get(uid) || []) {
+          states.set(ref.messageId, unread);
+        }
+      }
+    });
+  }
+
+  for (const id of new Set(messageIds)) {
+    if (!states.has(id)) states.set(id, false);
+  }
+
+  return states;
 }
 
 function createClient(config: ImapAccountConfig, accountEmail = config.user) {
@@ -363,6 +430,37 @@ function htmlToText(html: string) {
 
 function encodeImapMessageId(ref: ImapMessageRef) {
   return `imap:${Buffer.from(JSON.stringify(ref), "utf8").toString("base64url")}`;
+}
+
+type ImapMessageRefWithId = ImapMessageRef & { messageId: string };
+
+function groupImapMessageRefs(messageIds: string[]) {
+  const groups = new Map<string, ImapMessageRefWithId[]>();
+  for (const messageId of new Set(messageIds)) {
+    const ref = decodeImapMessageId(messageId);
+    const mailbox = ref.mailbox || "INBOX";
+    const group = groups.get(mailbox) || [];
+    group.push({ ...ref, mailbox, messageId });
+    groups.set(mailbox, group);
+  }
+  return groups;
+}
+
+function refsByUidMap(refs: ImapMessageRefWithId[]) {
+  const map = new Map<number, ImapMessageRefWithId[]>();
+  for (const ref of refs) {
+    const group = map.get(ref.uid) || [];
+    group.push(ref);
+    map.set(ref.uid, group);
+  }
+  return map;
+}
+
+function imapUidSet(refs: ImapMessageRefWithId[]) {
+  return [...new Set(refs.map(ref => ref.uid))]
+    .filter(uid => Number.isFinite(uid))
+    .sort((left, right) => left - right)
+    .join(",");
 }
 
 function decodeImapMessageId(messageId: string): ImapMessageRef {

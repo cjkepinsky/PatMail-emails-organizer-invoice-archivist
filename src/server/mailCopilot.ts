@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { db, getActiveProfileId, getAppSettings, isMailIgnored, listAccounts, markMailCachedUnread, updateJob } from "./db.js";
 import { classifyMailWithLlm, type MailClassification } from "./llm.js";
-import { messageDate, parseFromHeader } from "./gmail.js";
-import { getAccountParsedMessage, isAccountMessageUnread, listAccountMessageIds } from "./mailSource.js";
+import { messageDate, parseFromHeader, type ParsedGmailMessage } from "./gmail.js";
+import { getAccountParsedMessages, getAccountUnreadStates, listAccountMessageIds } from "./mailSource.js";
+import type { AppSettings } from "./types.js";
 
 type Progress = {
   message: string;
@@ -10,6 +11,29 @@ type Progress = {
   scannedMessages: number;
   importantMessages: number;
   warning?: string;
+};
+
+type CachedMailRow = {
+  message_id: string;
+  thread_id: string;
+  from_email: string;
+  from_name: string;
+  subject: string;
+  snippet: string;
+  received_at: string;
+  text: string;
+  html: string;
+};
+
+type ClassifiableMail = {
+  threadId: string;
+  fromEmail: string;
+  fromName: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  text: string;
+  html: string;
 };
 
 export async function runImportantMailSync(jobId: string, options: { days?: number }) {
@@ -27,6 +51,13 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
     importantMessages: 0
   };
   updateJob(jobId, { status: "running", startedAt, progress });
+  let lastProgressUpdateAt = 0;
+  const updateProgress = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastProgressUpdateAt < 700) return;
+    lastProgressUpdateAt = now;
+    updateJob(jobId, { progress });
+  };
 
   try {
     const accountWarnings: string[] = [];
@@ -36,7 +67,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
       try {
         progress.account = account.email;
         progress.message = text.checkingTracked;
-        updateJob(jobId, { progress });
+        updateProgress(true);
 
         const tracked = db
           .prepare(
@@ -51,140 +82,117 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
           )
           .all(account.id, profileId, account.id, profileId) as { message_id: string }[];
 
+        let unreadStates = new Map<string, boolean>();
+        try {
+          unreadStates = tracked.length
+            ? await getAccountUnreadStates(account, tracked.map(row => row.message_id))
+            : unreadStates;
+        } catch {
+          // Status refresh is a cleanup step; if it fails, continue with the new-message scan.
+        }
         for (const row of tracked) {
-          try {
-            const unread = await isAccountMessageUnread(account, row.message_id);
-            if (unread) {
-              markMailCachedUnread(account.id, row.message_id);
-              continue;
-            }
-            db.prepare("UPDATE mail_cache SET is_unread = 0 WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
-              account.id,
-              row.message_id,
-              profileId
-            );
-            db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
-              account.id,
-              row.message_id,
-              profileId
-            );
-          } catch {
-            // Ignore transient Gmail lookup failures for individual messages and continue with the sync.
+          if (!unreadStates.has(row.message_id)) continue;
+          if (unreadStates.get(row.message_id)) {
+            markMailCachedUnread(account.id, row.message_id);
+            continue;
           }
+          db.prepare("UPDATE mail_cache SET is_unread = 0 WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+            account.id,
+            row.message_id,
+            profileId
+          );
+          db.prepare("DELETE FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?").run(
+            account.id,
+            row.message_id,
+            profileId
+          );
         }
 
         progress.message = text.searchingRecent;
-        updateJob(jobId, { progress });
+        updateProgress(true);
 
         const query = `after:${formatGmailDate(after)} is:unread -category:promotions -category:social`;
         const ids = await listAccountMessageIds(account, query, count => {
           progress.message = text.foundRecent(count);
-          updateJob(jobId, { progress });
-        });
+          updateProgress();
+        }, 200);
 
-        for (const id of ids.slice(0, 200)) {
+        const importantRows = db
+          .prepare("SELECT message_id FROM important_items WHERE account_id = ? AND profile_id = ?")
+          .all(account.id, profileId) as { message_id: string }[];
+        const importantIds = new Set(importantRows.map(row => row.message_id));
+        const cachedRows = db
+          .prepare(
+            `SELECT message_id, thread_id, from_email, from_name, subject, snippet, received_at, text, html
+             FROM mail_cache
+             WHERE account_id = ? AND profile_id = ?`
+          )
+          .all(account.id, profileId) as CachedMailRow[];
+        const cachedById = new Map(cachedRows.map(row => [row.message_id, row]));
+        const idsToFetch: string[] = [];
+
+        for (const id of ids) {
           markMailCachedUnread(account.id, id);
           if (isMailIgnored(account.id, id)) {
             progress.scannedMessages += 1;
+            updateProgress();
             continue;
           }
-          const exists = db
-            .prepare("SELECT id FROM important_items WHERE account_id = ? AND message_id = ? AND profile_id = ?")
-            .get(account.id, id, profileId);
-          if (exists) continue;
+          if (importantIds.has(id)) continue;
 
-          const message = await getAccountParsedMessage(account, id);
-          const from = parseFromHeader(message.headers.from || "");
-          const subject = message.headers.subject || "";
-          const receivedAt = messageDate(message).toISOString();
-          const text = message.text || message.snippet || "";
-          cacheMail({
-            profileId,
-            accountId: account.id,
-            messageId: id,
-            threadId: message.threadId,
-            fromEmail: from.email,
-            fromName: from.name,
-            subject,
-            snippet: message.snippet,
-            receivedAt,
-            text,
-            html: message.html,
-            isUnread: true
-          });
-
-          const ruleClassification = classifyWithRules({
-            fromEmail: from.email,
-            fromName: from.name,
-            subject,
-            snippet: message.snippet,
-            text,
-            importantSenders: settings.importantSenders,
-            importantCategories: settings.importantCategories,
-            senderCategoryRules: settings.senderCategoryRules,
-            categoryRules: settings.categoryRules,
-            language: settings.language
-          });
-          let classification = ruleClassification.classification;
-          const shouldAskClassifier =
-            settings.classifierMode === "local-llm" ||
-            (settings.classifierMode === "hybrid" && !ruleClassification.confident);
-
-          if (shouldAskClassifier) {
-            classification =
-              (await classifyMailWithLlm({
-                from: `${from.name} <${from.email}>`,
-                subject,
-                snippet: message.snippet,
-                text,
-                importantSenders: settings.importantSenders,
-                importantCategories: settings.importantCategories,
-                language: settings.language
-              })) || classification;
-            classification = guardClassification(classification, ruleClassification, {
-              fromEmail: from.email,
-              fromName: from.name,
-              subject,
-              snippet: message.snippet,
-              text,
-              importantCategories: settings.importantCategories,
-              categoryRules: settings.categoryRules
-            });
-          }
-
-          progress.scannedMessages += 1;
-          if (classification.priority === "high" || classification.priority === "medium") {
-            db.prepare(`
-              INSERT OR IGNORE INTO important_items(
-                id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
-                received_at, priority, category, summary, action_required, due_date, amount, currency,
-                raw_json, created_at
-              )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(
-              randomUUID(),
+          const cached = cachedById.get(id);
+          if (cached) {
+            await classifyAndStoreImportant({
               profileId,
-              account.id,
-              id,
-              message.threadId,
-              from.email,
-              from.name,
-              subject,
-              message.snippet,
-              receivedAt,
-              classification.priority,
-              classification.category,
-              classification.summary,
-              classification.action_required,
-              classification.due_date,
-              classification.amount,
-              classification.currency,
-              JSON.stringify(classification),
-              new Date().toISOString()
-            );
-            progress.importantMessages += 1;
+              accountId: account.id,
+              messageId: id,
+              mail: mailFromCachedRow(cached),
+              settings,
+              allowClassifier: false,
+              progress
+            });
+            updateProgress();
+            continue;
           }
-          updateJob(jobId, { progress });
+
+          idsToFetch.push(id);
+        }
+
+        if (idsToFetch.length) {
+          const parsedMessages = await getAccountParsedMessages(account, idsToFetch);
+          for (const id of idsToFetch) {
+            const message = parsedMessages.get(id);
+            if (!message) {
+              progress.scannedMessages += 1;
+              updateProgress();
+              continue;
+            }
+            const mail = mailFromParsedMessage(message);
+            cacheMail({
+              profileId,
+              accountId: account.id,
+              messageId: id,
+              threadId: mail.threadId,
+              fromEmail: mail.fromEmail,
+              fromName: mail.fromName,
+              subject: mail.subject,
+              snippet: mail.snippet,
+              receivedAt: mail.receivedAt,
+              text: mail.text,
+              html: mail.html,
+              isUnread: true
+            });
+            await classifyAndStoreImportant({
+              profileId,
+              accountId: account.id,
+              messageId: id,
+              mail,
+              settings,
+              allowClassifier: true,
+              progress
+            });
+            updateProgress();
+          }
         }
         syncedAccounts += 1;
       } catch (error) {
@@ -192,7 +200,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
         accountWarnings.push(warning);
         progress.warning = accountWarnings.join(" ");
         progress.message = warning;
-        updateJob(jobId, { progress });
+        updateProgress(true);
       }
     }
 
@@ -224,6 +232,119 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
       error: error instanceof Error ? error.message : String(error),
       progress
     });
+  }
+}
+
+function mailFromParsedMessage(message: ParsedGmailMessage): ClassifiableMail {
+  const from = parseFromHeader(message.headers.from || "");
+  return {
+    threadId: message.threadId,
+    fromEmail: from.email,
+    fromName: from.name,
+    subject: message.headers.subject || "",
+    snippet: message.snippet,
+    receivedAt: messageDate(message).toISOString(),
+    text: message.text || message.snippet || "",
+    html: message.html
+  };
+}
+
+function mailFromCachedRow(row: CachedMailRow): ClassifiableMail {
+  return {
+    threadId: row.thread_id,
+    fromEmail: row.from_email,
+    fromName: row.from_name,
+    subject: row.subject,
+    snippet: row.snippet,
+    receivedAt: row.received_at,
+    text: row.text,
+    html: row.html
+  };
+}
+
+async function classifyAndStoreImportant(input: {
+  profileId: string;
+  accountId: string;
+  messageId: string;
+  mail: ClassifiableMail;
+  settings: AppSettings;
+  allowClassifier: boolean;
+  progress: Progress;
+}) {
+  const ruleClassification = classifyWithRules({
+    fromEmail: input.mail.fromEmail,
+    fromName: input.mail.fromName,
+    subject: input.mail.subject,
+    snippet: input.mail.snippet,
+    text: input.mail.text,
+    importantSenders: input.settings.importantSenders,
+    importantCategories: input.settings.importantCategories,
+    senderCategoryRules: input.settings.senderCategoryRules,
+    categoryRules: input.settings.categoryRules,
+    language: input.settings.language
+  });
+  let classification = ruleClassification.classification;
+  const shouldAskClassifier =
+    input.allowClassifier &&
+    (input.settings.classifierMode === "local-llm" ||
+      (input.settings.classifierMode === "hybrid" && !ruleClassification.confident));
+
+  if (shouldAskClassifier) {
+    classification =
+      (await classifyMailWithLlm({
+        from: `${input.mail.fromName} <${input.mail.fromEmail}>`,
+        subject: input.mail.subject,
+        snippet: input.mail.snippet,
+        text: input.mail.text,
+        importantSenders: input.settings.importantSenders,
+        importantCategories: input.settings.importantCategories,
+        language: input.settings.language
+      })) || classification;
+    classification = guardClassification(classification, ruleClassification, {
+      fromEmail: input.mail.fromEmail,
+      fromName: input.mail.fromName,
+      subject: input.mail.subject,
+      snippet: input.mail.snippet,
+      text: input.mail.text,
+      importantCategories: input.settings.importantCategories,
+      categoryRules: input.settings.categoryRules
+    });
+  }
+
+  input.progress.scannedMessages += 1;
+  if (classification.priority !== "high" && classification.priority !== "medium") return;
+
+  const result = db.prepare(`
+    INSERT OR IGNORE INTO important_items(
+      id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
+      received_at, priority, category, summary, action_required, due_date, amount, currency,
+      raw_json, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    randomUUID(),
+    input.profileId,
+    input.accountId,
+    input.messageId,
+    input.mail.threadId,
+    input.mail.fromEmail,
+    input.mail.fromName,
+    input.mail.subject,
+    input.mail.snippet,
+    input.mail.receivedAt,
+    classification.priority,
+    classification.category,
+    classification.summary,
+    classification.action_required,
+    classification.due_date,
+    classification.amount,
+    classification.currency,
+    JSON.stringify(classification),
+    new Date().toISOString()
+  );
+
+  if (Number(result.changes || 0) > 0) {
+    input.progress.importantMessages += 1;
   }
 }
 

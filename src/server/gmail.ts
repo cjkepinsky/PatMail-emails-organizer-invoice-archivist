@@ -80,25 +80,28 @@ export function gmailForAccount(account: GmailAccount) {
 export async function listMessageIds(
   gmail: gmail_v1.Gmail,
   q: string,
-  onPage?: (count: number) => void
+  onPage?: (count: number) => void,
+  limit?: number
 ) {
   const ids: string[] = [];
   let pageToken: string | undefined;
 
   do {
+    const remaining = limit ? Math.max(1, limit - ids.length) : 100;
     const response = await gmail.users.messages.list({
       userId: "me",
       q,
-      maxResults: 100,
+      maxResults: Math.min(100, remaining),
       pageToken
     });
     const messages = response.data.messages || [];
     ids.push(...messages.map(message => message.id).filter(Boolean) as string[]);
     onPage?.(ids.length);
     pageToken = response.data.nextPageToken || undefined;
-  } while (pageToken);
+  } while (pageToken && (!limit || ids.length < limit));
 
-  return [...new Set(ids)];
+  const unique = [...new Set(ids)];
+  return limit ? unique.slice(0, limit) : unique;
 }
 
 export async function getParsedMessage(gmail: gmail_v1.Gmail, id: string): Promise<ParsedGmailMessage> {
