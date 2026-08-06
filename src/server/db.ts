@@ -1437,6 +1437,108 @@ export function listSavedMailItems(): ImportantItem[] {
     .map(mapImportantItem);
 }
 
+export function searchMailItems(query: string, options: { limit?: number } = {}): ImportantItem[] {
+  const profileId = getActiveProfileId();
+  const searchQuery = query.trim();
+  if (!searchQuery) return [];
+  const limit = Math.max(1, Math.min(200, Number(options.limit || 100)));
+  const ftsQuery = buildMailFtsQuery(searchQuery);
+  if (ftsQuery) {
+    try {
+      const rows = db.prepare(searchMailSelect({ fts: true })).all(profileId, ftsQuery, limit) as Record<string, unknown>[];
+      if (rows.length > 0) return rows.map(mapImportantItem);
+    } catch {
+      // Fall back to LIKE search for punctuation-heavy queries that FTS cannot parse safely.
+    }
+  }
+  return searchMailItemsWithLike(profileId, searchQuery, limit);
+}
+
+function searchMailItemsWithLike(profileId: string, query: string, limit: number) {
+  const tokens = searchTokens(query).slice(0, 8);
+  if (tokens.length === 0) return [];
+  const clauses = tokens.map(
+    () => `(mail_cache.subject LIKE ? ESCAPE '\\'
+      OR mail_cache.from_email LIKE ? ESCAPE '\\'
+      OR mail_cache.from_name LIKE ? ESCAPE '\\'
+      OR mail_cache.snippet LIKE ? ESCAPE '\\'
+      OR mail_cache.text LIKE ? ESCAPE '\\')`
+  );
+  const params = tokens.flatMap(token => {
+    const pattern = `%${escapeSqlLike(token)}%`;
+    return [pattern, pattern, pattern, pattern, pattern];
+  });
+  const rows = db
+    .prepare(searchMailSelect({ extraWhere: clauses.join(" AND ") }))
+    .all(profileId, ...params, limit) as Record<string, unknown>[];
+  return rows.map(mapImportantItem);
+}
+
+function searchMailSelect(options: { fts?: boolean; extraWhere?: string } = {}) {
+  const ftsJoin = options.fts ? "JOIN mail_cache_fts ON mail_cache_fts.rowid = mail_cache.rowid" : "";
+  const where = options.fts ? "mail_cache_fts MATCH ?" : options.extraWhere || "1 = 1";
+  return `
+    SELECT
+      'search:' || mail_cache.account_id || ':' || mail_cache.message_id AS id,
+      mail_cache.account_id,
+      mail_cache.message_id,
+      mail_cache.thread_id,
+      mail_cache.from_email,
+      mail_cache.from_name,
+      mail_cache.subject,
+      mail_cache.snippet,
+      mail_cache.received_at,
+      COALESCE(important_items.priority, CASE WHEN mail_cache.is_unread = 1 THEN 'medium' ELSE 'low' END) AS priority,
+      COALESCE(
+        important_items.category,
+        CASE
+          WHEN saved_mail_items.id IS NOT NULL THEN 'zapisane'
+          WHEN mail_cache.is_unread = 1 THEN 'pozostałe'
+          ELSE 'mail'
+        END
+      ) AS category,
+      COALESCE(NULLIF(important_items.summary, ''), mail_cache.subject) AS summary,
+      COALESCE(important_items.action_required, '') AS action_required,
+      important_items.due_date,
+      important_items.amount,
+      important_items.currency,
+      CASE WHEN saved_mail_items.id IS NULL THEN 0 ELSE 1 END AS saved,
+      COALESCE(important_items.raw_json, '{}') AS raw_json,
+      mail_cache.created_at,
+      mail_cache.is_unread
+    FROM mail_cache
+    ${ftsJoin}
+    LEFT JOIN important_items
+      ON important_items.account_id = mail_cache.account_id
+     AND important_items.message_id = mail_cache.message_id
+     AND important_items.profile_id = mail_cache.profile_id
+    LEFT JOIN saved_mail_items
+      ON saved_mail_items.account_id = mail_cache.account_id
+     AND saved_mail_items.message_id = mail_cache.message_id
+     AND saved_mail_items.profile_id = mail_cache.profile_id
+    WHERE mail_cache.profile_id = ?
+      AND ${where}
+    ORDER BY mail_cache.received_at DESC
+    LIMIT ?
+  `;
+}
+
+function buildMailFtsQuery(query: string) {
+  const tokens = searchTokens(query).slice(0, 8);
+  return tokens.map(token => `"${token.replace(/"/g, '""')}"`).join(" AND ");
+}
+
+function searchTokens(query: string) {
+  return query
+    .split(/\s+/)
+    .map(token => token.trim().replace(/^["']+|["']+$/g, ""))
+    .filter(Boolean);
+}
+
+function escapeSqlLike(value: string) {
+  return value.replace(/[\\%_]/g, match => `\\${match}`);
+}
+
 export function getImportantItem(id: string): ImportantItem | null {
   const row = db.prepare("SELECT * FROM important_items WHERE id = ? AND profile_id = ?").get(id, getActiveProfileId());
   return row ? mapImportantItem(row as Record<string, unknown>) : null;
@@ -2164,6 +2266,7 @@ function mapImportantItem(row: Record<string, unknown>): ImportantItem {
     amount: row.amount ? String(row.amount) : null,
     currency: row.currency ? String(row.currency) : null,
     saved: Boolean(row.saved),
+    isUnread: row.is_unread === undefined ? undefined : Boolean(row.is_unread),
     rawJson: String(row.raw_json),
     createdAt: String(row.created_at)
   };

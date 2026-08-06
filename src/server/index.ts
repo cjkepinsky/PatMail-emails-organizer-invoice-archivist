@@ -38,6 +38,7 @@ import {
   markMailCachedUnread,
   markMailOperationUndone,
   restoreReadOperationSnapshot,
+  searchMailItems,
   updateMailCacheBodies,
   listProviders,
   cleanupInvoiceIndex,
@@ -332,6 +333,15 @@ app.get("/api/mail-feed", (_req, res) => {
     otherUnreadItems: listOtherUnreadMailItems(),
     savedMailItems: listSavedMailItems(),
     operations: listMailOperations()
+  });
+});
+
+app.get("/api/mail/search", (req, res) => {
+  const query = String(req.query.q || "").trim();
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit || 100)));
+  res.json({
+    query,
+    items: query ? searchMailItems(query, { limit }) : []
   });
 });
 

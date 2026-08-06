@@ -138,9 +138,20 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
             updateProgress();
             continue;
           }
-          if (importantIds.has(id)) continue;
-
           const cached = cachedById.get(id);
+          if (importantIds.has(id)) {
+            if (cached) {
+              refreshStoredImportantFromRules({
+                profileId,
+                accountId: account.id,
+                messageId: id,
+                mail: mailFromCachedRow(cached),
+                settings
+              });
+            }
+            continue;
+          }
+
           if (cached) {
             await classifyAndStoreImportant({
               profileId,
@@ -233,6 +244,74 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
       progress
     });
   }
+}
+
+function refreshStoredImportantFromRules(input: {
+  profileId: string;
+  accountId: string;
+  messageId: string;
+  mail: ClassifiableMail;
+  settings: AppSettings;
+}) {
+  const ruleClassification = classifyWithRules({
+    fromEmail: input.mail.fromEmail,
+    fromName: input.mail.fromName,
+    subject: input.mail.subject,
+    snippet: input.mail.snippet,
+    text: input.mail.text,
+    importantSenders: input.settings.importantSenders,
+    importantCategories: input.settings.importantCategories,
+    senderCategoryRules: input.settings.senderCategoryRules,
+    categoryRules: input.settings.categoryRules,
+    language: input.settings.language
+  });
+  if (!ruleClassification.confident) return;
+
+  const classification = ruleClassification.classification;
+  const existing = db
+    .prepare(
+      `SELECT priority, category, action_required, raw_json
+       FROM important_items
+       WHERE account_id = ? AND message_id = ? AND profile_id = ?`
+    )
+    .get(input.accountId, input.messageId, input.profileId) as
+    | { priority: string; category: string; action_required: string; raw_json: string }
+    | undefined;
+  if (!existing) return;
+  if (
+    existing.priority === classification.priority &&
+    existing.category === classification.category &&
+    existing.action_required === classification.action_required
+  ) {
+    return;
+  }
+
+  let rawClassification: Record<string, unknown> = {};
+  try {
+    rawClassification = JSON.parse(existing.raw_json || "{}") as Record<string, unknown>;
+  } catch {
+    // The normalized columns remain authoritative if an old raw payload is invalid.
+  }
+  rawClassification = {
+    ...rawClassification,
+    priority: classification.priority,
+    category: classification.category,
+    action_required: classification.action_required
+  };
+
+  db.prepare(
+    `UPDATE important_items
+     SET priority = ?, category = ?, action_required = ?, raw_json = ?
+     WHERE account_id = ? AND message_id = ? AND profile_id = ?`
+  ).run(
+    classification.priority,
+    classification.category,
+    classification.action_required,
+    JSON.stringify(rawClassification),
+    input.accountId,
+    input.messageId,
+    input.profileId
+  );
 }
 
 function mailFromParsedMessage(message: ParsedGmailMessage): ClassifiableMail {
@@ -672,11 +751,22 @@ function findConfiguredCategoryRule(
   }>
 ) {
   const consumerOrderNoise = isConsumerOrderNoise(haystack);
-  for (const rule of categoryRules) {
-    if (normalize(rule.category) === normalize("faktury i rachunki") && consumerOrderNoise) continue;
-    const senderMatch = rule.senderTerms.some(term => haystack.includes(term.toLowerCase()));
-    const keywordMatch = rule.keywordTerms.some(term => haystack.includes(term.toLowerCase()));
-    if (senderMatch || keywordMatch) {
+  const eligibleRules = categoryRules.filter(
+    rule => !(normalize(rule.category) === normalize("faktury i rachunki") && consumerOrderNoise)
+  );
+
+  for (const rule of eligibleRules) {
+    if (rule.senderTerms.some(term => haystack.includes(term.toLowerCase()))) {
+      return {
+        category: rule.category,
+        priority: rule.priority,
+        actionRequired: rule.actionRequired
+      };
+    }
+  }
+
+  for (const rule of eligibleRules) {
+    if (rule.keywordTerms.some(term => haystack.includes(term.toLowerCase()))) {
       return {
         category: rule.category,
         priority: rule.priority,

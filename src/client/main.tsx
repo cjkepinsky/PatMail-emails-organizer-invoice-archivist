@@ -121,6 +121,7 @@ type ImportantItem = {
   currency: string | null;
   receivedAt: string;
   saved: boolean;
+  isUnread?: boolean;
 };
 
 type ImportantDetail = ImportantItem & {
@@ -216,6 +217,11 @@ const TEXT = {
     settings: "Ustawienia",
     scanInvoices: "Skanuj faktury",
     refreshImportant: "Odśwież ważne",
+    searchMail: "Szukaj w poczcie",
+    searchMailPlaceholder: "Szukaj we wszystkich skrzynkach...",
+    search: "Szukaj",
+    searching: "Szukam...",
+    clearSearch: "Wyczyść",
     configuration: "Konfiguracja",
     activeProfile: "Aktywny profil",
     close: "Zamknij",
@@ -244,8 +250,12 @@ const TEXT = {
       "OAuth jest opcjonalny. Używaj go tylko wtedy, gdy chcesz logować skrzynki przez przeglądarkę i masz własny klient OAuth w Google Cloud.",
     oauthMissingConfig: "Najpierw zapisz Google Client ID i Client Secret, żeby włączyć podłączanie przez OAuth.",
     imapRecommended: "Rekomendowane",
+    invoiceStorageSettings: "Archiwum faktur",
     invoiceArchiveFolder: "Folder archiwum faktur",
+    invoiceArchiveHelp:
+      "To jest folder główny, w którym PatMail zapisuje faktury. W środku tworzy osobny folder dla każdej domeny dostawcy.",
     historicalScan: "Historyczny skan",
+    saveInvoiceSettings: "Zapisz ustawienia faktur",
     openAiToken: "OpenAI API token",
     chatModel: "Model OpenAI do rozmowy",
     chatWebSearch: "Domyślnie używaj Researchu z sieci",
@@ -330,6 +340,9 @@ const TEXT = {
     undoneButton: "Cofnięto",
     undo: "Cofnij",
     importantNow: "Teraz ważne",
+    mailSearchResults: "Wyniki wyszukiwania",
+    searchMatches: "wyników",
+    searchLocalScope: "Wyniki z lokalnie zsynchronizowanych maili w aktywnym profilu.",
     unreadEntries: "wpisów nieprzeczytanych",
     firstSyncHelp: "Po pierwszym syncu pojawią się tu faktury, terminy płatności, księgowość i sprawy wymagające reakcji.",
     importantCategoriesAria: "Kategorie ważnych maili",
@@ -337,8 +350,12 @@ const TEXT = {
     marking: "Oznaczam...",
     markVisibleRead: "Oznacz widoczne jako przeczytane",
     markRead: "Oznacz jako przeczytany",
+    alreadyRead: "Już przeczytany",
+    read: "przeczytany",
+    unread: "nieprzeczytany",
     due: "Termin",
     noMailInTab: "W tej zakładce nie ma teraz żadnych maili.",
+    noSearchResults: "Nie znalazłem pasujących maili w lokalnym cache’u.",
     newer: "Nowsze",
     older: "Starsze",
     page: "Strona",
@@ -419,6 +436,11 @@ const TEXT = {
     settings: "Settings",
     scanInvoices: "Scan invoices",
     refreshImportant: "Refresh important",
+    searchMail: "Search mail",
+    searchMailPlaceholder: "Search all mailboxes...",
+    search: "Search",
+    searching: "Searching...",
+    clearSearch: "Clear",
     configuration: "Configuration",
     activeProfile: "Active profile",
     close: "Close",
@@ -447,8 +469,12 @@ const TEXT = {
       "OAuth is optional. Use it only if you want browser-based mailbox authorization and you have your own OAuth client in Google Cloud.",
     oauthMissingConfig: "Save Google Client ID and Client Secret first to enable OAuth account connection.",
     imapRecommended: "Recommended",
+    invoiceStorageSettings: "Invoice archive",
     invoiceArchiveFolder: "Invoice archive folder",
+    invoiceArchiveHelp:
+      "This is the main folder where PatMail saves invoices. Inside it, the app creates one folder per provider domain.",
     historicalScan: "Historical scan",
+    saveInvoiceSettings: "Save invoice settings",
     openAiToken: "OpenAI API token",
     chatModel: "OpenAI chat model",
     chatWebSearch: "Use Web Research by default",
@@ -532,6 +558,9 @@ const TEXT = {
     undoneButton: "Undone",
     undo: "Undo",
     importantNow: "Important now",
+    mailSearchResults: "Search results",
+    searchMatches: "matches",
+    searchLocalScope: "Results come from locally synchronized mail in the active profile.",
     unreadEntries: "unread entries",
     firstSyncHelp: "After the first sync, invoices, payment due dates, accounting, and action-required mail will appear here.",
     importantCategoriesAria: "Important mail categories",
@@ -539,8 +568,12 @@ const TEXT = {
     marking: "Marking...",
     markVisibleRead: "Mark visible as read",
     markRead: "Mark as read",
+    alreadyRead: "Already read",
+    read: "read",
+    unread: "unread",
     due: "Due",
     noMailInTab: "There is no mail in this tab right now.",
+    noSearchResults: "No matching mail found in the local cache.",
     newer: "Newer",
     older: "Older",
     page: "Page",
@@ -685,6 +718,11 @@ function App() {
   const [mailFeedReady, setMailFeedReady] = useState(false);
   const [uiStateReady, setUiStateReady] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState("");
+  const [mailSearchInput, setMailSearchInput] = useState("");
+  const [mailSearchQuery, setMailSearchQuery] = useState("");
+  const [mailSearchResults, setMailSearchResults] = useState<ImportantItem[]>([]);
+  const [mailSearchRunning, setMailSearchRunning] = useState(false);
+  const [mailSearchError, setMailSearchError] = useState("");
   const [importantPage, setImportantPage] = useState(1);
   const [selectedImportantId, setSelectedImportantId] = useState("");
   const [shouldRevealSelectedMail, setShouldRevealSelectedMail] = useState(false);
@@ -787,6 +825,7 @@ function App() {
 
   useEffect(() => {
     setMailChatContext(null);
+    clearMailSearch();
   }, [activeProfileId]);
 
   useEffect(() => {
@@ -893,12 +932,15 @@ function App() {
     ];
   }, [importantCategories, otherUnreadItems.length, savedMailItems.length, t.remaining, t.saved]);
 
+  const isMailSearchActive = mailSearchQuery.trim().length > 0;
+
   const filteredImportantItems = useMemo(() => {
+    if (isMailSearchActive) return mailSearchResults;
     if (selectedCategory === "pozostałe") return otherUnreadItems;
     if (selectedCategory === "zapisane") return savedMailItems;
     if (!selectedCategory) return importantItems;
     return importantItems.filter(item => item.category === selectedCategory);
-  }, [importantItems, otherUnreadItems, savedMailItems, selectedCategory]);
+  }, [importantItems, isMailSearchActive, mailSearchResults, otherUnreadItems, savedMailItems, selectedCategory]);
 
   const importantPageCount = Math.max(1, Math.ceil(filteredImportantItems.length / IMPORTANT_PAGE_SIZE));
 
@@ -912,13 +954,14 @@ function App() {
 
   useEffect(() => {
     if (!mailFeedReady) return;
+    if (isMailSearchActive) return;
     if (selectedCategory && tabs.some(tab => tab.key === selectedCategory)) return;
     setSelectedCategory(tabs[0]?.key || "");
-  }, [mailFeedReady, selectedCategory, tabs]);
+  }, [isMailSearchActive, mailFeedReady, selectedCategory, tabs]);
 
   useEffect(() => {
     setImportantPage(1);
-  }, [selectedCategory]);
+  }, [isMailSearchActive, mailSearchQuery, selectedCategory]);
 
   useEffect(() => {
     if (importantPage <= importantPageCount) return;
@@ -1142,6 +1185,60 @@ function App() {
     applyMailFeed(mailFeed);
   }
 
+  async function submitMailSearch(event: React.FormEvent) {
+    event.preventDefault();
+    const query = mailSearchInput.trim();
+    if (!query) {
+      clearMailSearch();
+      return;
+    }
+    setActiveView("mail");
+    await runMailSearch(query, { selectFirst: true });
+  }
+
+  async function runMailSearch(query: string, options: { selectFirst?: boolean } = {}) {
+    const normalized = query.trim();
+    if (!normalized) {
+      clearMailSearch();
+      return;
+    }
+    setMailSearchQuery(normalized);
+    setMailSearchInput(normalized);
+    setMailSearchError("");
+    setMailSearchRunning(true);
+    try {
+      const result = await api(`/api/mail/search?q=${encodeURIComponent(normalized)}&limit=100`);
+      const items = (result.items || []) as ImportantItem[];
+      setMailSearchResults(items);
+      if (options.selectFirst !== false) {
+        setSelectedImportantId(items[0] ? mailKey(items[0]) : "");
+        setShouldRevealSelectedMail(false);
+      }
+    } catch (error) {
+      setMailSearchResults([]);
+      setMailSearchError(apiErrorMessage(error, language));
+      if (options.selectFirst !== false) setSelectedImportantId("");
+    } finally {
+      setMailSearchRunning(false);
+    }
+  }
+
+  function clearMailSearch() {
+    setMailSearchInput("");
+    setMailSearchQuery("");
+    setMailSearchResults([]);
+    setMailSearchError("");
+    setMailSearchRunning(false);
+  }
+
+  function markSearchItemsRead(items: Array<Pick<ImportantItem, "accountId" | "messageId">>) {
+    if (!items.length) return;
+    const readKeys = new Set(items.map(item => `${item.accountId}:${item.messageId}`));
+    setMailSearchResults(current =>
+      current.map(item => (readKeys.has(`${item.accountId}:${item.messageId}`) ? { ...item, isUnread: false } : item))
+    );
+  }
+
   function applyMailFeed(data: {
     importantItems: ImportantItem[];
     otherUnreadItems: ImportantItem[];
@@ -1285,6 +1382,7 @@ function App() {
       })
     });
     applyMailFeed(response);
+    markSearchItemsRead([target]);
     setStatus(
       response.gmailMarkedRead
         ? target.saved
@@ -1318,6 +1416,7 @@ function App() {
         body: JSON.stringify({ items })
       });
       applyMailFeed(response);
+      markSearchItemsRead(items);
       const errorCount = Array.isArray(response.errors) ? response.errors.length : 0;
       setStatus(
         errorCount > 0
@@ -1344,6 +1443,7 @@ function App() {
         method: "POST"
       });
       applyMailFeed(response);
+      if (mailSearchQuery) void runMailSearch(mailSearchQuery, { selectFirst: false });
       const errorCount = Array.isArray(response.errors) ? response.errors.length : 0;
       setStatus(
         errorCount > 0
@@ -1383,6 +1483,13 @@ function App() {
     });
     applyMailFeed(response);
     setSelectedImportant(current => (current ? { ...current, saved: nextSaved } : current));
+    setMailSearchResults(current =>
+      current.map(item =>
+        item.accountId === selectedImportant.accountId && item.messageId === selectedImportant.messageId
+          ? { ...item, saved: nextSaved, category: nextSaved ? "zapisane" : item.category }
+          : item
+      )
+    );
     setStatus(
       nextSaved
         ? language === "en"
@@ -1612,7 +1719,10 @@ function App() {
     const normalizedProvider = {
       ...provider,
       name: provider.name.trim(),
-      targetDomain: provider.targetDomain.trim().toLowerCase()
+      targetDomain: provider.targetDomain.trim().toLowerCase(),
+      senderDomains: normalizeStringList(provider.senderDomains),
+      senderEmails: normalizeStringList(provider.senderEmails),
+      searchTerms: normalizeStringList(provider.searchTerms)
     };
     if (!normalizedProvider.name || !normalizedProvider.targetDomain) {
       setToast(
@@ -1781,48 +1891,64 @@ function App() {
           title={t.resizeProfileSidebar}
         />
         <div className="app-content">
-      <section className="topbar">
-        <div>
-          <p className="eyebrow">PatMail</p>
-        </div>
-        <div className="top-actions">
-          <button
-            className={`button ${activeView === "mail" ? "accent" : "secondary"}`}
-            onClick={() => setActiveView("mail")}
-            type="button"
-          >
-            {t.mail}
-          </button>
-          <button
-            className={`button ${activeView === "archivizer" ? "accent" : "secondary"}`}
-            onClick={() => setActiveView("archivizer")}
-            type="button"
-          >
-            {t.archivizer}
-          </button>
-          <button
-            className={`button ${activeView === "operations" ? "accent" : "secondary"}`}
-            onClick={() => setActiveView("operations")}
-            type="button"
-          >
-            {t.changeHistory}{operations.length > 0 ? ` (${operations.length})` : ""}
-          </button>
-          <button
-            aria-label={t.settings}
-            className="button secondary icon-button"
-            onClick={() => setSettingsOpen(true)}
-            title={t.settings}
-            type="button"
-          >
-            <span aria-hidden="true">⚙</span>
-          </button>
-          {activeView === "mail" && (
-            <button className="button accent" onClick={startImportantSync}>
-              {t.refreshImportant}
-            </button>
-          )}
-        </div>
-      </section>
+          <section className="topbar">
+            <div>
+              <p className="eyebrow">PatMail</p>
+            </div>
+            <form className="global-search-form" onSubmit={submitMailSearch} role="search">
+              <input
+                aria-label={t.searchMail}
+                value={mailSearchInput}
+                onChange={event => setMailSearchInput(event.target.value)}
+                placeholder={t.searchMailPlaceholder}
+              />
+              {mailSearchInput.trim() && (
+                <button className="small-button" onClick={clearMailSearch} type="button">
+                  {t.clearSearch}
+                </button>
+              )}
+              <button className="button secondary" disabled={mailSearchRunning} type="submit">
+                {mailSearchRunning ? t.searching : t.search}
+              </button>
+            </form>
+            <div className="top-actions">
+              <button
+                className={`button ${activeView === "mail" ? "accent" : "secondary"}`}
+                onClick={() => setActiveView("mail")}
+                type="button"
+              >
+                {t.mail}
+              </button>
+              <button
+                className={`button ${activeView === "archivizer" ? "accent" : "secondary"}`}
+                onClick={() => setActiveView("archivizer")}
+                type="button"
+              >
+                {t.archivizer}
+              </button>
+              <button
+                className={`button ${activeView === "operations" ? "accent" : "secondary"}`}
+                onClick={() => setActiveView("operations")}
+                type="button"
+              >
+                {t.changeHistory}{operations.length > 0 ? ` (${operations.length})` : ""}
+              </button>
+              <button
+                aria-label={t.settings}
+                className="button secondary icon-button"
+                onClick={() => setSettingsOpen(true)}
+                title={t.settings}
+                type="button"
+              >
+                <span aria-hidden="true">⚙</span>
+              </button>
+              {activeView === "mail" && (
+                <button className="button accent" onClick={startImportantSync}>
+                  {t.refreshImportant}
+                </button>
+              )}
+            </div>
+          </section>
 
 	      {settingsOpen && (
 	        <div className="modal-backdrop" role="presentation" onClick={() => setSettingsOpen(false)}>
@@ -1937,24 +2063,6 @@ function App() {
 	                    />
 	                  </label>
 	                  <p className="muted full">{t.autoSyncHelp}</p>
-	                  <label>
-	                    {t.invoiceArchiveFolder}
-	                    <input
-	                      value={settings.archiveDir}
-	                      onChange={event => setSettings({ ...settings, archiveDir: event.target.value })}
-	                      placeholder="/Users/krzysztof/Documents/Faktury"
-	                    />
-	                  </label>
-	                  <label>
-	                    {t.historicalScan}
-	                    <input
-	                      type="number"
-	                      min={1}
-	                      max={10}
-	                      value={settings.historyYears}
-	                      onChange={event => setSettings({ ...settings, historyYears: Number(event.target.value) })}
-	                    />
-	                  </label>
 	                  <label>
 	                    {t.openAiToken}
 	                    <input
@@ -2260,7 +2368,7 @@ function App() {
 		                        {t.senderDomains}
 		                        <textarea
 		                          value={selectedRule.senderTerms.join("\n")}
-		                          onChange={event => updateCategoryRule(selectedRule.id, { senderTerms: lines(event.target.value) })}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { senderTerms: draftLines(event.target.value) })}
 		                          placeholder={language === "en" ? "notifications@example.com\nexample.com" : "powiadomienia@allegromail.pl\nallegro.pl"}
 		                        />
 		                      </label>
@@ -2268,7 +2376,7 @@ function App() {
 		                        {t.subjectBodyPhrases}
 		                        <textarea
 		                          value={selectedRule.keywordTerms.join("\n")}
-		                          onChange={event => updateCategoryRule(selectedRule.id, { keywordTerms: lines(event.target.value) })}
+		                          onChange={event => updateCategoryRule(selectedRule.id, { keywordTerms: draftLines(event.target.value) })}
 		                          placeholder={language === "en" ? "order status\nyour order" : "status zamówienia\ntwoje zamówienie"}
 		                        />
 		                      </label>
@@ -2291,6 +2399,37 @@ function App() {
 		                  <h2>{t.invoices}</h2>
 		                  <span>{providers.filter(provider => provider.enabled).length}</span>
 		                </div>
+		                <form className="settings-form invoice-archive-form" onSubmit={saveSettings}>
+		                  <div className="form-heading full">
+		                    <h3>{t.invoiceStorageSettings}</h3>
+		                  </div>
+		                  <label className="full">
+		                    {t.invoiceArchiveFolder}
+		                    <input
+		                      value={settings.archiveDir}
+		                      onChange={event => setSettings({ ...settings, archiveDir: event.target.value })}
+		                      placeholder={
+		                        language === "en" ? "/Users/you/Documents/Invoices" : "/Users/twoje-konto/Dokumenty/Faktury"
+		                      }
+		                    />
+		                  </label>
+		                  <p className="muted full">{t.invoiceArchiveHelp}</p>
+		                  <label>
+		                    {t.historicalScan}
+		                    <input
+		                      type="number"
+		                      min={1}
+		                      max={10}
+		                      value={settings.historyYears}
+		                      onChange={event => setSettings({ ...settings, historyYears: Number(event.target.value) })}
+		                    />
+		                  </label>
+		                  <div className="modal-actions">
+		                    <button className="button" type="submit">
+		                      {t.saveInvoiceSettings}
+		                    </button>
+		                  </div>
+		                </form>
 		                <div className="single-editor-toolbar">
 		                  <label className="editor-select">
 		                    {t.selectInvoiceProvider}
@@ -2377,7 +2516,7 @@ function App() {
 		                        <textarea
 		                          value={selectedProvider.senderDomains.join("\n")}
 		                          onChange={event =>
-		                            updateProvider(selectedProvider.id, { senderDomains: lines(event.target.value) })
+		                            updateProvider(selectedProvider.id, { senderDomains: draftLines(event.target.value) })
 		                          }
 		                        />
 		                      </label>
@@ -2386,7 +2525,7 @@ function App() {
 		                        <textarea
 		                          value={selectedProvider.senderEmails.join("\n")}
 		                          onChange={event =>
-		                            updateProvider(selectedProvider.id, { senderEmails: lines(event.target.value) })
+		                            updateProvider(selectedProvider.id, { senderEmails: draftLines(event.target.value) })
 		                          }
 		                        />
 		                      </label>
@@ -2395,7 +2534,7 @@ function App() {
 		                        <textarea
 		                          value={selectedProvider.searchTerms.join("\n")}
 		                          onChange={event =>
-		                            updateProvider(selectedProvider.id, { searchTerms: lines(event.target.value) })
+		                            updateProvider(selectedProvider.id, { searchTerms: draftLines(event.target.value) })
 		                          }
 		                        />
 		                      </label>
@@ -2542,39 +2681,68 @@ function App() {
       ) : (
         <>
 
-      <section className="important-feed">
-        <div className="section-title">
-          <h2>{t.importantNow}</h2>
-          <span>{importantItems.length + otherUnreadItems.length} {t.unreadEntries}</span>
-        </div>
-        {importantItems.length === 0 && otherUnreadItems.length === 0 && savedMailItems.length === 0 ? (
-          <p className="muted">{t.firstSyncHelp}</p>
-        ) : (
-          <div className="important-workspace" ref={importantWorkspaceRef} style={mailColumnStyle}>
-            <div className="important-list-pane">
-              <div className="category-tabs" role="tablist" aria-label={t.importantCategoriesAria}>
-                {tabs.map(tab => (
-                  <button
-                    className={tab.key === selectedCategory ? "category-tab active" : "category-tab"}
-                    key={tab.key}
-                    onClick={() => setSelectedCategory(tab.key)}
-                    type="button"
-                  >
-                    <span>{displayCategoryLabel(tab.label, language)}</span>
-                    <strong>{tab.count}</strong>
-                  </button>
-                ))}
-                <button
-                  className="category-tab bulk-read-tab"
-                  disabled={visibleImportantItems.length === 0 || bulkReadRunning}
-                  onClick={() => void markVisibleMailRead()}
-                  title={t.bulkReadTitle}
-                  type="button"
-                >
-                  <span aria-hidden="true">✓</span>
-                  <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
-                </button>
-              </div>
+        <section className="important-feed">
+          <div className="section-title">
+            <h2>{isMailSearchActive ? t.mailSearchResults : t.importantNow}</h2>
+            <span>
+              {isMailSearchActive
+                ? mailSearchRunning
+                  ? t.searching
+                  : `${mailSearchResults.length} ${t.searchMatches}`
+                : `${importantItems.length + otherUnreadItems.length} ${t.unreadEntries}`}
+            </span>
+          </div>
+          {!isMailSearchActive && importantItems.length === 0 && otherUnreadItems.length === 0 && savedMailItems.length === 0 ? (
+            <p className="muted">{t.firstSyncHelp}</p>
+          ) : (
+            <div className="important-workspace" ref={importantWorkspaceRef} style={mailColumnStyle}>
+              <div className="important-list-pane">
+                {isMailSearchActive ? (
+                  <div className="search-results-toolbar">
+                    <div>
+                      <strong>{mailSearchQuery}</strong>
+                      <small>{t.searchLocalScope}</small>
+                      {mailSearchError && <small className="error">{mailSearchError}</small>}
+                    </div>
+                    <button className="small-button" onClick={clearMailSearch} type="button">
+                      {t.clearSearch}
+                    </button>
+                    <button
+                      className="category-tab bulk-read-tab"
+                      disabled={visibleImportantItems.length === 0 || bulkReadRunning}
+                      onClick={() => void markVisibleMailRead()}
+                      title={t.bulkReadTitle}
+                      type="button"
+                    >
+                      <span aria-hidden="true">✓</span>
+                      <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
+                    </button>
+                  </div>
+                ) : (
+	                <div className="category-tabs" role="tablist" aria-label={t.importantCategoriesAria}>
+	                  {tabs.map(tab => (
+	                    <button
+	                      className={tab.key === selectedCategory ? "category-tab active" : "category-tab"}
+	                      key={tab.key}
+	                      onClick={() => setSelectedCategory(tab.key)}
+	                      type="button"
+	                    >
+	                      <span>{displayCategoryLabel(tab.label, language)}</span>
+	                      <strong>{tab.count}</strong>
+	                    </button>
+	                  ))}
+	                  <button
+	                    className="category-tab bulk-read-tab"
+	                    disabled={visibleImportantItems.length === 0 || bulkReadRunning}
+	                    onClick={() => void markVisibleMailRead()}
+	                    title={t.bulkReadTitle}
+	                    type="button"
+	                  >
+	                    <span aria-hidden="true">✓</span>
+	                    <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
+	                  </button>
+	                </div>
+	              )}
               <div className="feed-list">
                 {visibleImportantItems.map(item => {
                   const title = localizeServerMessage(item.subject || item.summary || item.snippet, language);
@@ -2585,7 +2753,7 @@ function App() {
                   return (
                     <article
                       className={mailKey(item) === selectedImportantId ? "feed-item selected" : "feed-item"}
-                      key={`${selectedCategory}:${mailKey(item)}`}
+                      key={`${isMailSearchActive ? `search:${mailSearchQuery}` : selectedCategory}:${mailKey(item)}`}
                     >
                       <button
                         className="feed-select"
@@ -2601,6 +2769,12 @@ function App() {
                             <small className="feed-action">{actionRequired}</small>
                           )}
                           <div className="feed-badges">
+                            {isMailSearchActive && (
+                              <span className="feed-badge">{displayCategoryLabel(item.category, language)}</span>
+                            )}
+                            {isMailSearchActive && item.isUnread !== undefined && (
+                              <span className="feed-badge">{item.isUnread ? t.unread : t.read}</span>
+                            )}
                             <span className={`pill ${item.priority}`}>{item.priority}</span>
                             {item.dueDate && <span className="feed-badge">{t.due}: {item.dueDate}</span>}
                             {item.amount && <span className="feed-badge">{item.amount} {item.currency || ""}</span>}
@@ -2617,22 +2791,23 @@ function App() {
                           Gmail
                         </a>
                         <button
-                          aria-label={t.markRead}
+                          aria-label={item.isUnread === false ? t.alreadyRead : t.markRead}
                           className="feed-check"
+                          disabled={item.isUnread === false}
                           onClick={() => void markMailRead(item)}
-                          title={t.markRead}
-                          type="button"
-                        >
+                          title={item.isUnread === false ? t.alreadyRead : t.markRead}
+	                          type="button"
+	                        >
                           ✓
                         </button>
                       </div>
                     </article>
                   );
                 })}
-              </div>
-              {visibleImportantItems.length === 0 && (
-                <p className="muted">{t.noMailInTab}</p>
-              )}
+	              </div>
+	              {visibleImportantItems.length === 0 && (
+	                <p className="muted">{mailSearchRunning ? t.searching : isMailSearchActive ? t.noSearchResults : t.noMailInTab}</p>
+	              )}
               {filteredImportantItems.length > IMPORTANT_PAGE_SIZE && (
                 <div className="pagination">
                   <span className="pagination-summary">
@@ -3171,9 +3346,13 @@ function escapeMailAttribute(value: string) {
   return escapeMailHtml(value).replace(/"/g, "&quot;");
 }
 
-function lines(value: string) {
-  return value
-    .split(/\n|,/)
+function draftLines(value: string) {
+  return value.replace(/\r\n/g, "\n").split("\n");
+}
+
+function normalizeStringList(values: string[]) {
+  return values
+    .flatMap(value => value.split(/\n|,/))
     .map(item => item.trim())
     .filter(Boolean);
 }

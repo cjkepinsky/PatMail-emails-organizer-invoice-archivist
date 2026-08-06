@@ -102,6 +102,14 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -119,8 +127,11 @@ textarea {
 
 .shell {
   width: calc(100% - 32px);
+  height: 100vh;
+  height: 100dvh;
   margin: 0 auto;
-  padding: 24px 0 48px;
+  padding: 24px 0;
+  overflow: hidden;
 }
 
 .app-layout {
@@ -128,18 +139,30 @@ textarea {
   display: grid;
   grid-template-columns: minmax(180px, var(--profile-sidebar-width)) 10px minmax(0, 1fr);
   gap: 6px;
-  align-items: start;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
 }
 
 .app-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .profile-sidebar {
-  position: sticky;
-  top: 16px;
+  position: relative;
   display: grid;
+  align-content: start;
   gap: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
@@ -147,11 +170,9 @@ textarea {
 }
 
 .profile-sidebar-resizer {
-  position: sticky;
-  top: 16px;
-  align-self: start;
-  height: calc(100vh - 32px);
-  min-height: 180px;
+  position: relative;
+  align-self: stretch;
+  min-height: 0;
   border-radius: 8px;
   cursor: col-resize;
   touch-action: none;
@@ -270,14 +291,27 @@ textarea {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(260px, 1fr) auto;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px;
   padding: 14px 18px;
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: 8px;
+}
+
+.global-search-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.global-search-form input {
+  min-width: 0;
+  flex: 1;
 }
 
 .eyebrow {
@@ -350,7 +384,28 @@ h2 {
   padding: 18px;
 }
 
+.important-feed,
+.operation-history-view,
+.archivizer-view {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.important-feed {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.operation-history-view,
+.archivizer-view {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
 .status-stack {
+  flex: 0 0 auto;
   display: grid;
   gap: 12px;
   margin-top: 16px;
@@ -379,9 +434,16 @@ small {
 }
 
 .feed-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   gap: 10px;
+  min-height: 0;
   margin-top: 14px;
+  padding-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .operation-list {
@@ -443,6 +505,7 @@ small {
 .feed-item {
   position: relative;
   display: block;
+  flex: 0 0 auto;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 14px 12px 12px;
@@ -580,6 +643,32 @@ small {
   background: var(--accent-soft);
 }
 
+.feed-check:disabled {
+  color: var(--disabled);
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.search-results-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.search-results-toolbar > div {
+  display: grid;
+  flex: 1 1 240px;
+  gap: 3px;
+  min-width: 0;
+}
+
+.search-results-toolbar strong,
+.search-results-toolbar small {
+  overflow-wrap: anywhere;
+}
+
 .important-workspace {
   --mail-list-fr: 0.85fr;
   --mail-preview-fr: 1.05fr;
@@ -592,11 +681,18 @@ small {
     10px
     minmax(320px, var(--mail-chat-fr));
   gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
   margin-top: 14px;
+  overflow: hidden;
 }
 
 .important-list-pane {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .column-resizer {
@@ -674,6 +770,11 @@ small {
 
 .important-preview {
   min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 16px;
@@ -681,7 +782,11 @@ small {
 }
 
 .mailbox-chat-pane {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   padding: 16px;
@@ -848,6 +953,11 @@ small {
   word-break: break-word;
   font-family: inherit;
   line-height: 1.6;
+}
+
+.important-preview .mail-body {
+  max-height: none;
+  overflow: visible;
 }
 
 .mail-body.mail-body-reader p {
@@ -1260,6 +1370,18 @@ textarea {
   margin-top: 14px;
 }
 
+.invoice-archive-form {
+  margin: 16px 0 18px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.invoice-archive-form h3 {
+  margin: 0;
+}
+
 .provider-editor-card {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
@@ -1393,16 +1515,22 @@ textarea {
 }
 
 .chat-history {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
   gap: 14px;
-  max-height: min(58vh, 720px);
+  min-height: 0;
+  max-height: none;
   margin-top: 16px;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding-right: 4px;
 }
 
 .chat-turn {
   display: grid;
+  flex: 0 0 auto;
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--border-faint);
@@ -1464,8 +1592,59 @@ th {
 }
 
 @media (max-width: 1180px) {
+  html,
+  body,
+  #root {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  .shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .app-layout,
+  .app-content {
+    height: auto;
+    overflow: visible;
+  }
+
+  .profile-sidebar {
+    height: auto;
+  }
+
+  .important-feed,
+  .operation-history-view,
+  .archivizer-view,
+  .important-workspace,
+  .important-list-pane {
+    overflow: visible;
+  }
+
   .important-workspace {
     grid-template-columns: 1fr;
+  }
+
+  .feed-list,
+  .important-preview,
+  .mailbox-chat-pane {
+    max-height: min(70vh, 760px);
+  }
+
+  .important-preview,
+  .mailbox-chat-pane {
+    overflow-y: auto;
+  }
+
+  .mailbox-chat-pane {
+    min-height: 420px;
+  }
+
+  .chat-history {
+    max-height: min(52vh, 620px);
   }
 
   .column-resizer {
@@ -1494,14 +1673,27 @@ th {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   }
 
-  .topbar,
-  .job-strip,
-  .section-title,
-  .modal-header,
-  .modal-actions {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+	  .topbar,
+	  .job-strip,
+	  .section-title,
+	  .modal-header,
+	  .modal-actions {
+	    align-items: flex-start;
+	    flex-direction: column;
+	  }
+
+	  .topbar {
+	    grid-template-columns: 1fr;
+	  }
+
+	  .global-search-form,
+	  .top-actions {
+	    width: 100%;
+	  }
+
+	  .global-search-form {
+	    flex-wrap: wrap;
+	  }
 
   .settings-form {
     grid-template-columns: 1fr;

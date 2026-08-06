@@ -147,6 +147,7 @@ export type ImportantItem = {
   amount: string | null;
   currency: string | null;
   saved: boolean;
+  isUnread?: boolean;
   rawJson: string;
   createdAt: string;
 };
