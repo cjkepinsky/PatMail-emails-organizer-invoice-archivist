@@ -340,6 +340,8 @@ const TEXT = {
     undoneButton: "Cofnięto",
     undo: "Cofnij",
     importantNow: "Teraz ważne",
+    remainingView: "Pozostałe",
+    mailSectionsAria: "Widoki ważnych i pozostałych maili",
     mailSearchResults: "Wyniki wyszukiwania",
     searchMatches: "wyników",
     searchLocalScope: "Wyniki z lokalnie zsynchronizowanych maili w aktywnym profilu.",
@@ -369,6 +371,7 @@ const TEXT = {
     askAboutMail: "Zadaj pytanie",
     senderCategory: "Nadawca → kategoria",
     assignSenderCategory: "Przypisz nadawcę",
+    changeSenderCategory: "Zmień kategorię",
     assigningSenderCategory: "Przypisuję...",
     senderCategoryHelp: "Od teraz maile od tego nadawcy będą trafiać do wybranej kategorii w tym profilu.",
     senderCategorySaved: "Nadawca {sender} będzie trafiać do kategorii „{category}”. Przeniesiono {count} maili.",
@@ -558,6 +561,8 @@ const TEXT = {
     undoneButton: "Undone",
     undo: "Undo",
     importantNow: "Important now",
+    remainingView: "Remaining",
+    mailSectionsAria: "Important and remaining mail views",
     mailSearchResults: "Search results",
     searchMatches: "matches",
     searchLocalScope: "Results come from locally synchronized mail in the active profile.",
@@ -587,6 +592,7 @@ const TEXT = {
     askAboutMail: "Ask question",
     senderCategory: "Sender → category",
     assignSenderCategory: "Assign sender",
+    changeSenderCategory: "Change category",
     assigningSenderCategory: "Assigning...",
     senderCategoryHelp: "From now on, mail from this sender will land in the selected category in this profile.",
     senderCategorySaved: "Sender {sender} will land in “{category}”. Moved {count} messages.",
@@ -761,6 +767,7 @@ function App() {
   const importantWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const mailColumnResizeDrag = useRef<MailColumnResizeDrag | null>(null);
   const chatWebSearchDefaultProfileId = useRef("");
+  const lastImportantCategory = useRef("");
   const accountEmailById = useMemo(() => {
     return new Map(accounts.map(account => [account.id, account.email]));
   }, [accounts]);
@@ -912,7 +919,7 @@ function App() {
     return [...counts.entries()].sort((left, right) => right[1] - left[1]);
   }, [importantItems]);
 
-  const tabs = useMemo(() => {
+  const categoryTabs = useMemo(() => {
     return [
       ...importantCategories.map(([category, count]) => ({
         key: category,
@@ -920,19 +927,15 @@ function App() {
         count
       })),
       {
-        key: "pozostałe",
-        label: t.remaining,
-        count: otherUnreadItems.length
-      },
-      {
         key: "zapisane",
         label: t.saved,
         count: savedMailItems.length
       }
     ];
-  }, [importantCategories, otherUnreadItems.length, savedMailItems.length, t.remaining, t.saved]);
+  }, [importantCategories, savedMailItems.length, t.saved]);
 
   const isMailSearchActive = mailSearchQuery.trim().length > 0;
+  const isRemainingView = !isMailSearchActive && selectedCategory === "pozostałe";
 
   const filteredImportantItems = useMemo(() => {
     if (isMailSearchActive) return mailSearchResults;
@@ -955,9 +958,15 @@ function App() {
   useEffect(() => {
     if (!mailFeedReady) return;
     if (isMailSearchActive) return;
-    if (selectedCategory && tabs.some(tab => tab.key === selectedCategory)) return;
-    setSelectedCategory(tabs[0]?.key || "");
-  }, [isMailSearchActive, mailFeedReady, selectedCategory, tabs]);
+    if (selectedCategory === "pozostałe") return;
+    if (selectedCategory && categoryTabs.some(tab => tab.key === selectedCategory)) {
+      lastImportantCategory.current = selectedCategory;
+      return;
+    }
+    const firstImportantCategory = categoryTabs.find(tab => tab.key !== "zapisane")?.key;
+    const fallbackCategory = firstImportantCategory || (savedMailItems.length > 0 ? "zapisane" : "");
+    setSelectedCategory(fallbackCategory || (otherUnreadItems.length > 0 ? "pozostałe" : "zapisane"));
+  }, [categoryTabs, isMailSearchActive, mailFeedReady, otherUnreadItems.length, savedMailItems.length, selectedCategory]);
 
   useEffect(() => {
     setImportantPage(1);
@@ -1059,22 +1068,35 @@ function App() {
   const categoryRules = settings?.categoryRules || [];
   const selectedRule = categoryRules.find(rule => rule.id === selectedRuleId) || categoryRules[0] || null;
   const selectedProvider = providers.find(provider => provider.id === selectedProviderId) || providers[0] || null;
-  const assignableSenderCategories = useMemo(
-    () => parseSettingsList(settings?.importantCategories || "").filter(category => !isReservedMailCategory(category)),
-    [settings?.importantCategories]
-  );
+  const assignableSenderCategories = useMemo(() => {
+    const categories = [
+      ...parseSettingsList(settings?.importantCategories || ""),
+      ...(settings?.categoryRules || []).map(rule => rule.category.trim()).filter(Boolean)
+    ];
+    const seen = new Set<string>();
+    return categories.filter(category => {
+      const key = normalizeCategoryKey(category);
+      if (!key || isReservedMailCategory(category) || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [settings?.categoryRules, settings?.importantCategories]);
   const activeProfile = profiles.find(profile => profile.id === activeProfileId) || null;
   const activeProfileName = activeProfile ? displayProfileName(activeProfile, t) : t.activeProfile;
 
   useEffect(() => {
-    if (assignableSenderCategories.length === 0) {
-      if (senderAssignCategory) setSenderAssignCategory("");
-      return;
-    }
-    if (!assignableSenderCategories.some(category => category === senderAssignCategory)) {
-      setSenderAssignCategory(assignableSenderCategories[0]);
-    }
-  }, [assignableSenderCategories, senderAssignCategory]);
+    const currentCategory = selectedImportant?.category || "";
+    const matchingCurrentCategory = assignableSenderCategories.find(
+      category => normalizeCategoryKey(category) === normalizeCategoryKey(currentCategory)
+    );
+    const nextCategory = matchingCurrentCategory || assignableSenderCategories[0] || "";
+    setSenderAssignCategory(current => (current === nextCategory ? current : nextCategory));
+  }, [
+    assignableSenderCategories,
+    selectedImportant?.accountId,
+    selectedImportant?.category,
+    selectedImportant?.messageId
+  ]);
 
   function resetProfileSidebarWidth() {
     setProfileSidebarWidth(DEFAULT_PROFILE_SIDEBAR_WIDTH);
@@ -2683,7 +2705,38 @@ function App() {
 
         <section className="important-feed">
           <div className="section-title">
-            <h2>{isMailSearchActive ? t.mailSearchResults : t.importantNow}</h2>
+            {isMailSearchActive ? (
+              <h2>{t.mailSearchResults}</h2>
+            ) : (
+              <div className="mail-scope-tabs" role="tablist" aria-label={t.mailSectionsAria}>
+                <button
+                  aria-selected={!isRemainingView}
+                  className={!isRemainingView ? "mail-scope-tab active" : "mail-scope-tab"}
+                  onClick={() => {
+                    const rememberedCategory = lastImportantCategory.current;
+                    const nextCategory = categoryTabs.some(tab => tab.key === rememberedCategory)
+                      ? rememberedCategory
+                      : categoryTabs[0]?.key || "zapisane";
+                    setSelectedCategory(nextCategory);
+                  }}
+                  role="tab"
+                  type="button"
+                >
+                  <span>{t.importantNow}</span>
+                  <strong>{importantItems.length}</strong>
+                </button>
+                <button
+                  aria-selected={isRemainingView}
+                  className={isRemainingView ? "mail-scope-tab active" : "mail-scope-tab"}
+                  onClick={() => setSelectedCategory("pozostałe")}
+                  role="tab"
+                  type="button"
+                >
+                  <span>{t.remainingView}</span>
+                  <strong>{otherUnreadItems.length}</strong>
+                </button>
+              </div>
+            )}
             <span>
               {isMailSearchActive
                 ? mailSearchRunning
@@ -2718,9 +2771,9 @@ function App() {
                       <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
                     </button>
                   </div>
-                ) : (
+	                ) : (
 	                <div className="category-tabs" role="tablist" aria-label={t.importantCategoriesAria}>
-	                  {tabs.map(tab => (
+	                  {!isRemainingView && categoryTabs.map(tab => (
 	                    <button
 	                      className={tab.key === selectedCategory ? "category-tab active" : "category-tab"}
 	                      key={tab.key}
@@ -2879,7 +2932,7 @@ function App() {
                           {t.askAboutMail}
                         </button>
                       </div>
-                      {selectedCategory === "pozostałe" && !selectedImportant.saved && assignableSenderCategories.length > 0 && (
+                      {!selectedImportant.saved && assignableSenderCategories.length > 0 && (
                         <div className="sender-category-actions">
                           <label>
                             <span>{t.senderCategory}</span>
@@ -2900,7 +2953,11 @@ function App() {
                             onClick={() => void assignSelectedSenderToCategory()}
                             type="button"
                           >
-                            {senderAssigning ? t.assigningSenderCategory : t.assignSenderCategory}
+                            {senderAssigning
+                              ? t.assigningSenderCategory
+                              : selectedImportant.category === "pozostałe"
+                                ? t.assignSenderCategory
+                                : t.changeSenderCategory}
                           </button>
                           <small>{t.senderCategoryHelp}</small>
                         </div>
@@ -3241,8 +3298,9 @@ function displayCategoryLabel(category: string, language: UiLanguage) {
   return CATEGORY_LABELS_EN[normalized] || category;
 }
 
-function parseSettingsList(value: string) {
-  return value
+function parseSettingsList(value: string | string[]) {
+  const serialized = Array.isArray(value) ? value.join("\n") : value;
+  return serialized
     .split(/\n|,/)
     .map(item => item.trim())
     .filter(Boolean);

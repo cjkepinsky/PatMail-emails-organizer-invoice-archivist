@@ -433,6 +433,37 @@ small {
   color: var(--muted);
 }
 
+.mail-scope-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mail-scope-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mail-scope-tab span {
+  color: inherit;
+}
+
+.mail-scope-tab.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 .feed-list {
   display: flex;
   flex-direction: column;

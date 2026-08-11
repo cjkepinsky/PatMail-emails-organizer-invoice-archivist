@@ -692,7 +692,6 @@ function migrateImportantCategoriesSetting(profileId = getActiveProfileId()) {
 
   if (changed) {
     setProfileSetting(profileId, "importantCategories", JSON.stringify(migrated));
-    clearImportantItems(profileId);
   }
 }
 
@@ -1065,24 +1064,16 @@ export function updateAppSettings(input: Partial<AppSettings>) {
     setSetting("classifierTimeoutMs", String(normalizeClassifierTimeout(input.classifierTimeoutMs)));
   }
   if (input.importantSenders !== undefined) {
-    const current = parseJsonListSetting("importantSenders");
-    if (!sameList(current, input.importantSenders)) clearImportantItems();
     setSetting("importantSenders", JSON.stringify(input.importantSenders));
   }
   if (input.importantCategories !== undefined) {
     const categories = input.importantCategories.length ? input.importantCategories : defaultImportantCategories;
-    const current = parseJsonListSetting("importantCategories", defaultImportantCategories);
-    if (!sameList(current, categories)) clearImportantItems();
     setSetting("importantCategories", JSON.stringify(categories));
   }
   if (input.senderCategoryRules !== undefined) {
-    const current = parseSenderCategoryRulesSetting();
-    if (JSON.stringify(current) !== JSON.stringify(input.senderCategoryRules)) clearImportantItems();
     setSetting("senderCategoryRules", JSON.stringify(input.senderCategoryRules));
   }
   if (input.categoryRules !== undefined) {
-    const current = parseCategoryRulesSetting();
-    if (JSON.stringify(current) !== JSON.stringify(input.categoryRules)) clearImportantItems();
     setSetting("categoryRules", JSON.stringify(input.categoryRules));
   }
   return getAppSettings();
@@ -1108,11 +1099,6 @@ export function updateGoogleOAuthConfig(input: {
   if (input.googleClientSecret !== undefined) setSetting("googleClientSecret", input.googleClientSecret);
   if (input.googleRedirectUri !== undefined) setSetting("googleRedirectUri", input.googleRedirectUri);
   return getGoogleOAuthConfig();
-}
-
-function sameList(left: string[], right: string[]) {
-  if (left.length !== right.length) return false;
-  return left.every((item, index) => item === right[index]);
 }
 
 function clearImportantItems(profileId = getActiveProfileId()) {

@@ -162,7 +162,7 @@ app.post("/api/settings", (req, res) => {
     });
   }
 
-  const settings = updateAppSettings({
+  updateAppSettings({
     archiveDir: String(body.archiveDir || ""),
     historyYears: Number(body.historyYears || 4),
     language: body.language === "en" ? "en" : "pl",
@@ -191,19 +191,12 @@ app.post("/api/settings", (req, res) => {
     senderCategoryRules: parseSenderCategoryRules(String(body.senderCategoryRules || "")),
     categoryRules: Array.isArray(body.categoryRules) ? body.categoryRules.map(parseCategoryRuleInput).filter(Boolean) : undefined
   });
-  const storedConfig = updateGoogleOAuthConfig({
+  updateGoogleOAuthConfig({
     googleClientId,
     googleClientSecret,
     googleRedirectUri
   });
-  res.json({
-    ...settings,
-    googleClientId: storedConfig.googleClientId,
-    googleClientSecret: storedConfig.googleClientSecret ? "configured" : "",
-    googleRedirectUri: storedConfig.googleRedirectUri,
-    llmApiKey: settings.llmApiKey ? "configured" : "",
-    classifierApiKey: settings.classifierApiKey ? "configured" : ""
-  });
+  res.json(safeSettings());
 });
 
 app.get("/api/accounts", (_req, res) => {
