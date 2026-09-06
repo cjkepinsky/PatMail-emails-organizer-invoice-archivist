@@ -21,6 +21,8 @@ import {
   verifyImapConfig
 } from "./imap.js";
 import { buildReplyMessage } from "./mailReply.js";
+import { buildComposeMessage } from "./mailCompose.js";
+import type { AttachmentInput, InlineImageInput } from "./mailMime.js";
 import { sendSmtpMail, smtpHostForImapHost } from "./smtp.js";
 import type { GmailAccount, ImapAccountConfig } from "./types.js";
 
@@ -95,12 +97,18 @@ export async function getAccountUnreadStates(account: GmailAccount, messageIds: 
   return states;
 }
 
-export async function replyToAccountMessage(account: GmailAccount, messageId: string, body: string) {
+export async function replyToAccountMessage(
+  account: GmailAccount,
+  messageId: string,
+  body: string,
+  images: InlineImageInput[] = []
+) {
   const original = await getAccountParsedMessage(account, messageId);
   const reply = buildReplyMessage({
     accountEmail: account.email,
     original,
-    body
+    body,
+    images
   });
 
   if (account.authType === "imap") {
@@ -124,6 +132,46 @@ export async function replyToAccountMessage(account: GmailAccount, messageId: st
   return {
     to: reply.toEmail,
     subject: reply.subject
+  };
+}
+
+export async function sendAccountMessage(
+  account: GmailAccount,
+  input: {
+    to: string[];
+    cc: string[];
+    bcc: string[];
+    subject: string;
+    body: string;
+    images?: InlineImageInput[];
+    attachments?: AttachmentInput[];
+  }
+) {
+  const message = buildComposeMessage({
+    accountEmail: account.email,
+    ...input
+  });
+
+  if (account.authType === "imap") {
+    const config = parseImapConfig(account);
+    await sendSmtpMail({
+      host: smtpHostForImapHost(config.host),
+      port: 465,
+      username: config.user,
+      password: config.password,
+      fromEmail: config.user,
+      recipientEmails: message.recipientEmails,
+      rawMessage: message.smtpRaw
+    });
+  } else {
+    await sendRawMessage(gmailForAccount(account), { raw: message.raw });
+  }
+
+  return {
+    to: message.to,
+    cc: message.cc,
+    bcc: message.bcc,
+    subject: message.subject
   };
 }
 

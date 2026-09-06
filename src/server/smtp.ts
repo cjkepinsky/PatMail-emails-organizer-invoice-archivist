@@ -8,9 +8,12 @@ export async function sendSmtpMail(input: {
   username: string;
   password: string;
   fromEmail: string;
-  toEmail: string;
+  toEmail?: string;
+  recipientEmails?: string[];
   rawMessage: string;
 }) {
+  const recipientEmails = [...new Set([input.toEmail, ...(input.recipientEmails || [])].filter(Boolean))] as string[];
+  if (recipientEmails.length === 0) throw new Error("Brakuje adresatów wiadomości SMTP.");
   const socket = tls.connect({
     host: input.host,
     port: input.port,
@@ -25,7 +28,9 @@ export async function sendSmtpMail(input: {
     await session.command("EHLO localhost", [250]);
     await session.command(`AUTH PLAIN ${Buffer.from(`\0${input.username}\0${input.password}`, "utf8").toString("base64")}`, [235]);
     await session.command(`MAIL FROM:<${input.fromEmail}>`, [250]);
-    await session.command(`RCPT TO:<${input.toEmail}>`, [250, 251]);
+    for (const recipientEmail of recipientEmails) {
+      await session.command(`RCPT TO:<${recipientEmail}>`, [250, 251]);
+    }
     await session.command("DATA", [354]);
     await session.data(input.rawMessage);
     await session.expect([250]);

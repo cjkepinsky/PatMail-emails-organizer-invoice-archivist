@@ -63,18 +63,21 @@ import {
   markAccountMessageRead,
   markAccountMessageUnread,
   replyToAccountMessage,
+  sendAccountMessage,
   testImapAccount
 } from "./mailSource.js";
 import { runInvoiceBackfill } from "./invoiceScanner.js";
 import { getChatContext, runImportantMailSync } from "./mailCopilot.js";
+import { searchMailAcrossAccounts } from "./mailSearch.js";
 import { chatWithMailbox, getClassifierStatus, getLlmStatus } from "./llm.js";
+import type { AttachmentInput, InlineImageInput } from "./mailMime.js";
 import type { ReadOperationSnapshot } from "./types.js";
 
 initDefaults();
 
 const app = express();
 app.use(cors({ origin: serverConfig.appOrigin }));
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "30mb" }));
 if (serverConfig.staticDir) app.use(express.static(serverConfig.staticDir));
 
 app.get("/api/health", (_req, res) => {
@@ -135,6 +138,9 @@ app.post("/api/ui-state", (req, res) => {
         typeof body.profileSidebarWidth === "number" || typeof body.profileSidebarWidth === "string"
           ? body.profileSidebarWidth
           : undefined,
+      categoryTabOrder: Array.isArray(body.categoryTabOrder)
+        ? body.categoryTabOrder.map((category: unknown) => String(category))
+        : undefined,
       mailColumnWeights:
         body.mailColumnWeights && typeof body.mailColumnWeights === "object" ? body.mailColumnWeights : undefined
     })
@@ -329,13 +335,20 @@ app.get("/api/mail-feed", (_req, res) => {
   });
 });
 
-app.get("/api/mail/search", (req, res) => {
+app.get("/api/mail/search", async (req, res) => {
   const query = String(req.query.q || "").trim();
   const limit = Math.max(1, Math.min(200, Number(req.query.limit || 100)));
   res.json({
     query,
     items: query ? searchMailItems(query, { limit }) : []
   });
+});
+
+app.get("/api/mail/search/remote", async (req, res) => {
+  const query = String(req.query.q || "").trim();
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit || 100)));
+  const result = query ? await searchMailAcrossAccounts(query, { limit }) : { items: [], warnings: [] };
+  res.json({ query, ...result });
 });
 
 app.get("/api/important/:id", (req, res) => {
@@ -456,15 +469,16 @@ app.post("/api/mail/reply", async (req, res) => {
   const accountId = String(req.body?.accountId || "");
   const messageId = String(req.body?.messageId || "");
   const body = String(req.body?.body || "").trim();
+  const images = requestInlineImages(req.body?.images);
 
   if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
-  if (!body) return res.status(400).json({ error: t(language, "missingReplyBody") });
+  if (!body && images.length === 0) return res.status(400).json({ error: t(language, "missingReplyBody") });
 
   const account = getAccount(accountId);
   if (!account) return res.status(404).json({ error: t(language, "mailAccountNotFound") });
 
   try {
-    const result = await replyToAccountMessage(account, messageId, body.slice(0, 50_000));
+    const result = await replyToAccountMessage(account, messageId, body.slice(0, 50_000), images);
     res.json({
       ok: true,
       to: result.to,
@@ -473,6 +487,43 @@ app.post("/api/mail/reply", async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: localizeKnownError(error, language) });
+  }
+});
+
+app.post("/api/mail/send", async (req, res) => {
+  const language = appLanguage();
+  const accountId = String(req.body?.accountId || "");
+  const to = requestEmailList(req.body?.to);
+  const cc = requestEmailList(req.body?.cc);
+  const bcc = requestEmailList(req.body?.bcc);
+  const subject = String(req.body?.subject || "").slice(0, 998);
+  const body = String(req.body?.body || "").slice(0, 100_000);
+  const images = requestInlineImages(req.body?.images);
+  const attachments = requestAttachments(req.body?.attachments);
+
+  if (!accountId) return res.status(400).json({ error: t(language, "missingMailAccount") });
+  if (to.length === 0) return res.status(400).json({ error: t(language, "missingComposeRecipient") });
+  if (!body.trim() && images.length === 0 && attachments.length === 0) {
+    return res.status(400).json({ error: t(language, "missingComposeBody") });
+  }
+
+  const account = getAccount(accountId);
+  if (!account) return res.status(404).json({ error: t(language, "mailAccountNotFound") });
+
+  try {
+    const result = await sendAccountMessage(account, { to, cc, bcc, subject, body, images, attachments });
+    res.json({
+      ok: true,
+      ...result,
+      from: account.email,
+      sentAt: new Date().toISOString()
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const statusCode = /^(Nieprawidłowy adres e-mail|Brakuje co najmniej jednego adresata|Brakuje treści wiadomości|Można (?:wkleić|dodać)|Obsługiwane są obrazy|Wklejony obraz|Pojedynczy (?:obraz|załącznik)|Wklejone obrazy|Załącznik|Załączniki|Obrazy i załączniki)/i.test(message)
+      ? 400
+      : 500;
+    res.status(statusCode).json({ error: localizeKnownError(error, language) });
   }
 });
 
@@ -1013,6 +1064,32 @@ function normalizeReadOperationSnapshot(input: unknown): ReadOperationSnapshot |
   };
 }
 
+function requestEmailList(input: unknown) {
+  const values = Array.isArray(input) ? input : [input];
+  return values
+    .flatMap(value => String(value || "").split(/[;,\n]/))
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function requestInlineImages(input: unknown): InlineImageInput[] {
+  if (!Array.isArray(input)) return [];
+  return input.map(image => ({
+    filename: String(image?.filename || ""),
+    mimeType: String(image?.mimeType || ""),
+    data: String(image?.data || "")
+  }));
+}
+
+function requestAttachments(input: unknown): AttachmentInput[] {
+  if (!Array.isArray(input)) return [];
+  return input.map(attachment => ({
+    filename: String(attachment?.filename || ""),
+    mimeType: String(attachment?.mimeType || ""),
+    data: String(attachment?.data || "")
+  }));
+}
+
 function publicAccounts() {
   return listAccounts().map(account => ({
     id: account.id,
@@ -1034,7 +1111,10 @@ type ErrorKey =
   | "operationNotFound"
   | "operationCannotUndo"
   | "enterChatQuestion"
-  | "missingReplyBody";
+  | "missingReplyBody"
+  | "missingMailAccount"
+  | "missingComposeRecipient"
+  | "missingComposeBody";
 
 function appLanguage(): UiLanguage {
   return getAppSettings().language || "pl";
@@ -1079,8 +1159,20 @@ function t(language: UiLanguage, key: ErrorKey) {
       en: "Enter a chat question."
     },
     missingReplyBody: {
-      pl: "Wpisz treść odpowiedzi.",
-      en: "Enter the reply body."
+      pl: "Wpisz treść odpowiedzi lub wklej obraz.",
+      en: "Enter the reply body or paste an image."
+    },
+    missingMailAccount: {
+      pl: "Wybierz skrzynkę, z której ma zostać wysłana wiadomość.",
+      en: "Choose the mailbox that should send the message."
+    },
+    missingComposeRecipient: {
+      pl: "Wpisz co najmniej jeden adres w polu Do.",
+      en: "Enter at least one address in the To field."
+    },
+    missingComposeBody: {
+      pl: "Wpisz treść wiadomości, wklej obraz lub dodaj załącznik.",
+      en: "Enter the message body, paste an image, or add an attachment."
     }
   };
   return dictionary[key][language];
@@ -1113,9 +1205,24 @@ function localizeKnownError(error: unknown, language: UiLanguage) {
     [/^Nie znaleziono załącznika$/i, "Attachment was not found."],
     [/^Nie znaleziono wiadomości IMAP$/i, "IMAP message was not found."],
     [/^Nieprawidłowy identyfikator wiadomości IMAP$/i, "Invalid IMAP message id."],
-    [/^Brakuje treści odpowiedzi\.$/i, "Enter the reply body."],
+    [/^Brakuje treści odpowiedzi(?: lub wklejonego obrazu)?\.$/i, "Enter the reply body or paste an image."],
     [/^Nie udało się ustalić adresata odpowiedzi\.$/i, "Could not determine the reply recipient."],
     [/^Nieprawidłowy adres e-mail odpowiedzi\.$/i, "Invalid reply email address."],
+    [/^Brakuje co najmniej jednego adresata w polu Do\.$/i, "Enter at least one recipient in the To field."],
+    [/^Brakuje treści wiadomości, wklejonego obrazu lub załącznika\.$/i, "Enter the message body, paste an image, or add an attachment."],
+    [/^Brakuje treści wiadomości(?: lub wklejonego obrazu)?\.$/i, "Enter the message body or paste an image."],
+    [/^Można wkleić maksymalnie (\d+) obrazów do jednej wiadomości\.$/i, count => `You can paste up to ${count} images into one message.`],
+    [/^Obsługiwane są obrazy PNG, JPEG, GIF i WebP\.$/i, "PNG, JPEG, GIF, and WebP images are supported."],
+    [/^Wklejony obraz zawiera nieprawidłowe dane\.$/i, "The pasted image contains invalid data."],
+    [/^Pojedynczy obraz może mieć maksymalnie (\d+) MB\.$/i, size => `A single image can be up to ${size} MB.`],
+    [/^Wklejone obrazy mogą mieć łącznie maksymalnie (\d+) MB\.$/i, size => `Pasted images can be up to ${size} MB in total.`],
+    [/^Można dodać maksymalnie (\d+) załączników do jednej wiadomości\.$/i, count => `You can add up to ${count} attachments to one message.`],
+    [/^Załącznik zawiera nieprawidłowe dane\.$/i, "The attachment contains invalid data."],
+    [/^Pojedynczy załącznik może mieć maksymalnie (\d+) MB\.$/i, size => `A single attachment can be up to ${size} MB.`],
+    [/^Załączniki mogą mieć łącznie maksymalnie (\d+) MB\.$/i, size => `Attachments can be up to ${size} MB in total.`],
+    [/^Obrazy i załączniki mogą mieć łącznie maksymalnie (\d+) MB\.$/i, size => `Images and attachments can be up to ${size} MB in total.`],
+    [/^Brakuje adresatów wiadomości SMTP\.$/i, "The SMTP message has no recipients."],
+    [/^Nieprawidłowy adres e-mail: (.+)\.$/i, address => `Invalid email address: ${address}.`],
     [/^Brakuje hosta IMAP dla konta (.+)$/i, account => `Missing IMAP host for account ${account}.`],
     [/^Brakuje użytkownika IMAP dla konta (.+)$/i, account => `Missing IMAP user for account ${account}.`],
     [/^Brakuje hasła aplikacji IMAP dla konta (.+)$/i, account => `Missing IMAP app password for account ${account}.`],

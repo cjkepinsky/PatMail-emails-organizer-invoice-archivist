@@ -7,6 +7,7 @@ export type ParsedGmailMessage = {
   threadId: string;
   snippet: string;
   internalDate: string;
+  isUnread?: boolean;
   headers: Record<string, string>;
   text: string;
   html: string;
@@ -123,6 +124,7 @@ export async function getParsedMessage(gmail: gmail_v1.Gmail, id: string): Promi
     threadId: message.threadId || "",
     snippet: message.snippet || "",
     internalDate: message.internalDate || "",
+    isUnread: (message.labelIds || []).includes("UNREAD"),
     headers,
     text: "",
     html: "",

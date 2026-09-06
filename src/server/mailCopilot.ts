@@ -1,5 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { db, getActiveProfileId, getAppSettings, isMailIgnored, listAccounts, markMailCachedUnread, updateJob } from "./db.js";
+import {
+  db,
+  getActiveProfileId,
+  getAppSettings,
+  isMailIgnored,
+  listAccounts,
+  markMailCachedUnread,
+  updateJob,
+  upsertMailCache
+} from "./db.js";
 import { classifyMailWithLlm, type MailClassification } from "./llm.js";
 import { messageDate, parseFromHeader, type ParsedGmailMessage } from "./gmail.js";
 import { getAccountParsedMessages, getAccountUnreadStates, listAccountMessageIds } from "./mailSource.js";
@@ -179,7 +188,7 @@ export async function runImportantMailSync(jobId: string, options: { days?: numb
               continue;
             }
             const mail = mailFromParsedMessage(message);
-            cacheMail({
+            upsertMailCache({
               profileId,
               accountId: account.id,
               messageId: id,
@@ -449,51 +458,6 @@ export function getChatContext(question: string) {
         ? "recentImportant contains the most important recent messages; focusedMatches are short excerpts matching the question. Answer concisely."
         : "recentImportant zawiera najważniejsze ostatnie wiadomości; focusedMatches to krótkie fragmenty pasujące do pytania. Odpowiadaj zwięźle."
   };
-}
-
-function cacheMail(input: {
-  profileId: string;
-  accountId: string;
-  messageId: string;
-  threadId: string;
-  fromEmail: string;
-  fromName: string;
-  subject: string;
-  snippet: string;
-  receivedAt: string;
-  text: string;
-  html: string;
-  isUnread: boolean;
-}) {
-  db.prepare(`
-    INSERT INTO mail_cache(
-      id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
-      received_at, text, html, is_unread, created_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(account_id, message_id) DO UPDATE SET
-      profile_id = excluded.profile_id,
-      subject = excluded.subject,
-      snippet = excluded.snippet,
-      text = excluded.text,
-      html = excluded.html,
-      is_unread = excluded.is_unread
-  `).run(
-    randomUUID(),
-    input.profileId,
-    input.accountId,
-    input.messageId,
-    input.threadId,
-    input.fromEmail,
-    input.fromName,
-    input.subject,
-    input.snippet,
-    input.receivedAt,
-    input.text,
-    input.html,
-    input.isUnread ? 1 : 0,
-    new Date().toISOString()
-  );
 }
 
 function classifyWithRules(input: {

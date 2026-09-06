@@ -371,6 +371,7 @@ function parsedMailToMessage(parsed: ParsedMail, fetched: FetchMessageObject, id
     threadId: fetched.threadId ? String(fetched.threadId) : id,
     snippet: normalizeWhitespace(text).slice(0, 180),
     internalDate: imapInternalDate(fetched.internalDate),
+    isUnread: !Boolean(fetched.flags?.has("\\Seen")),
     headers,
     text: normalizeWhitespace(text),
     html: normalizeHtml(html),

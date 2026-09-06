@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { parseFromHeader, type ParsedGmailMessage } from "./gmail.js";
+import { buildMessageContent, type InlineImageInput } from "./mailMime.js";
 
 export type ReplyMessage = {
   raw: string;
@@ -12,9 +13,11 @@ export function buildReplyMessage(input: {
   accountEmail: string;
   original: ParsedGmailMessage;
   body: string;
+  images?: InlineImageInput[];
 }): ReplyMessage {
   const body = input.body.trim();
-  if (!body) throw new Error("Brakuje treści odpowiedzi.");
+  const content = buildMessageContent(body, input.images);
+  if (!body && content.imageCount === 0) throw new Error("Brakuje treści odpowiedzi lub wklejonego obrazu.");
 
   const recipient = firstAddress(input.original.headers["reply-to"] || input.original.headers.from || "");
   if (!recipient.email) throw new Error("Nie udało się ustalić adresata odpowiedzi.");
@@ -35,12 +38,11 @@ export function buildReplyMessage(input: {
     originalMessageId ? `In-Reply-To: ${originalMessageId}` : "",
     references ? `References: ${references}` : "",
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: 8bit"
+    ...content.headers
   ].filter(Boolean);
 
   return {
-    raw: normalizeCrlf(`${headers.join("\r\n")}\r\n\r\n${body}\r\n`),
+    raw: normalizeCrlf(`${headers.join("\r\n")}\r\n\r\n${content.body}`),
     toEmail: recipient.email,
     subject,
     threadId: input.original.threadId

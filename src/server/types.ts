@@ -53,6 +53,7 @@ export type UiState = {
   selectedAccountId: string | null;
   selectedMessageId: string | null;
   profileSidebarWidth: number | null;
+  categoryTabOrder: string[];
   mailColumnWeights: {
     list: number;
     preview: number;

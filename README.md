@@ -37,10 +37,11 @@ Some account-specific values are intentionally blurred.
 - Profile-based workspaces: each profile has its own accounts, invoice providers, category rules, important senders, saved mail, ignored mail, invoice index, and local mailbox state.
 - Bilingual interface with a Polish/English switch in Settings; on first launch PatMail chooses Polish for a Polish system locale and English otherwise, then stores the selected language per profile.
 - Dark, light, and system appearance modes.
-- Dedicated Mail, Archivizer, Change History, and Settings views.
+- Dedicated Mail, new-message composer, Archivizer, Change History, and Settings views.
 - Automatic invoice archive scanner with historical backfill, duplicate detection, provider-specific folders, and invoice filenames starting with `YYYY-MM`.
 - Quiet automatic important-mail refresh with a configurable interval, designed to avoid heavy background CPU usage.
-- Important-mail dashboard with category tabs, unread-only sync, saved mail, message preview, attachment links, pagination, per-message and bulk "mark visible as read", declassification, and a reply composer.
+- Important-mail dashboard with category tabs, unread-only sync, saved mail, message preview, attachment links, pagination, per-message and bulk "mark visible as read", declassification, and reply/new-message composers.
+- Cross-account mail search returns cached results immediately, then queries connected Gmail/IMAP mailboxes for additional matching messages; both read and unread mail are included.
 - Resizable workspace/sidebar and mail columns, with the UI state stored locally per profile.
 - AI mailbox chat using a configurable OpenAI chat model, currently designed around `gpt-4.1-mini`, with optional Web Research.
 - Hybrid mail classification using manual rules first and a lightweight local LLM (`tinydolphin:latest`) only when rule confidence is not enough.
@@ -167,6 +168,9 @@ Features:
 - Attachment section above the email body with open/download actions.
 - Selected-mail AI actions: summarize the current message or use it as context for the next chat question.
 - Reply composer below the selected message preview.
+- New-message composer opened from the workspace sidebar, with mailbox selection and To, CC, BCC, subject, and plain-text body fields.
+- Clipboard images can be pasted into both composers with `Cmd+V`, previewed, removed before sending, and delivered as inline MIME images that are also visible as attachments. PNG, JPEG, GIF, and WebP are supported.
+- The new-message composer also supports selecting up to 10 regular file attachments, reviewing their names and sizes, and removing individual files before sending. Pasted images and selected attachments share a 20 MB total limit.
 - Per-message mark-as-read control.
 - Bulk "mark visible as read" for the currently visible page only.
 - Pagination for large categories.
@@ -233,7 +237,7 @@ Default IMAP settings:
 
 The IMAP layer uses `imapflow` and includes explicit connection, greeting, socket, operation, and logout timeouts. IMAP socket timeouts are converted into per-account status warnings instead of crashing the Electron process.
 
-Replies for IMAP accounts are sent through SMTP. For Gmail IMAP, PatMail derives `smtp.gmail.com` from the IMAP configuration, uses port `465`, and authenticates with the same Gmail app password.
+Replies and new messages from IMAP accounts are sent through SMTP. For Gmail IMAP, PatMail derives `smtp.gmail.com` from the IMAP configuration, uses port `465`, and authenticates with the same Gmail app password.
 
 ### Google OAuth
 
@@ -247,7 +251,7 @@ http://127.0.0.1:8797/api/auth/google/callback
 
 OAuth client settings can be entered in the app settings or provided through `.env`.
 
-For replying through OAuth accounts, the Google client must include Gmail send permission (`gmail.send`). If that scope is missing, PatMail asks the user to reconnect that account.
+For replying or composing new messages through OAuth accounts, the Google client must include Gmail send permission (`gmail.send`). If that scope is missing, PatMail asks the user to reconnect that account.
 
 ## Local Storage and Privacy
 
@@ -287,7 +291,7 @@ Secrets and credentials are not committed to the repository. `.env` is intention
 - OpenAI Chat Completions for mailbox chat.
 - OpenAI Responses API with `web_search` for optional Web Research in mailbox chat.
 - Local OpenAI-compatible LLM endpoint for lightweight classification.
-- SMTP for replies from IMAP-connected accounts.
+- SMTP for replies and new messages from IMAP-connected accounts.
 - `electron-builder` for macOS app and DMG packaging.
 
 ## Development
@@ -398,6 +402,7 @@ Część danych kont i ścieżek jest celowo zamazana.
 - Automatyczny skaner faktur z historycznym backfillem, wykrywaniem duplikatów, folderami dla domen dostawców i nazwami faktur zaczynającymi się od `YYYY-MM`.
 - Ciche automatyczne odświeżanie ważnej poczty z konfigurowalnym interwałem, zaprojektowane tak, żeby nie obciążało mocno CPU w tle.
 - Widok ważnej poczty z zakładkami kategorii, synchronizacją tylko maili nieprzeczytanych, zapisanymi mailami, podglądem treści, linkami do załączników, stronicowaniem, pojedynczym i zbiorczym oznaczaniem widocznych maili jako przeczytane, deklasyfikacją oraz oknem odpowiedzi.
+- Wyszukiwanie we wszystkich kontach od razu pokazuje wyniki z lokalnego indeksu, a następnie sprawdza podłączone skrzynki Gmail/IMAP; obejmuje zarówno maile przeczytane, jak i nieprzeczytane.
 - Zmieniana szerokość panelu profili oraz kolumn poczty, z lokalnym zapisem stanu UI per profil.
 - Czat ze skrzynką używający konfigurowalnego modelu OpenAI, obecnie projektowany wokół `gpt-4.1-mini`, z opcjonalnym Web Research.
 - Hybrydowa klasyfikacja maili: najpierw reguły ręczne, potem lekki lokalny LLM `tinydolphin:latest` tylko dla niejednoznacznych przypadków.
@@ -524,6 +529,9 @@ Funkcje:
 - Sekcja załączników nad treścią maila z akcjami otwórz/pobierz.
 - Akcje AI dla wybranego maila: streszczenie aktualnej wiadomości albo użycie jej jako kontekstu dla kolejnego pytania.
 - Okno odpowiedzi pod podglądem wybranej wiadomości.
+- Kompozytor nowej wiadomości otwierany z panelu przestrzeni, z wyborem skrzynki oraz polami Do, DW (CC), UDW (BCC), temat i treść tekstowa.
+- W obu kompozytorach można wkleić obraz ze schowka przez `Cmd+V`, zobaczyć miniaturę, usunąć go przed wysłaniem i wysłać jako obraz MIME widoczny w treści oraz jako załącznik. Obsługiwane są PNG, JPEG, GIF i WebP.
+- Kompozytor nowej wiadomości pozwala też wybrać do 10 zwykłych plików, sprawdzić ich nazwy i rozmiary oraz osobno usunąć każdy załącznik przed wysłaniem. Wklejone obrazy i wybrane załączniki mają wspólny limit 20 MB.
 - Oznaczanie pojedynczego maila jako przeczytany.
 - Zbiorcze "oznacz widoczne jako przeczytane" tylko dla aktualnie widocznej strony.
 - Stronicowanie dużych kategorii.
@@ -590,7 +598,7 @@ Domyślne ustawienia IMAP:
 
 Warstwa IMAP używa `imapflow` i ma osobne timeouty dla połączenia, powitania serwera, socketu, operacji i wylogowania. Timeouty socketu IMAP są zamieniane na ostrzeżenia per konto zamiast wysypywać proces Electron.
 
-Odpowiedzi z kont IMAP są wysyłane przez SMTP. Dla Gmail IMAP PatMail wyprowadza `smtp.gmail.com` z konfiguracji IMAP, używa portu `465` i loguje się tym samym hasłem aplikacji Gmail.
+Odpowiedzi i nowe wiadomości z kont IMAP są wysyłane przez SMTP. Dla Gmail IMAP PatMail wyprowadza `smtp.gmail.com` z konfiguracji IMAP, używa portu `465` i loguje się tym samym hasłem aplikacji Gmail.
 
 ### Google OAuth
 
@@ -604,7 +612,7 @@ http://127.0.0.1:8797/api/auth/google/callback
 
 Dane klienta OAuth można wpisać w ustawieniach aplikacji albo przekazać przez `.env`.
 
-Do odpowiadania przez konta OAuth klient Google musi mieć uprawnienie wysyłania Gmail (`gmail.send`). Jeżeli tego zakresu brakuje, PatMail poprosi o ponowne podłączenie danego konta.
+Do odpowiadania i tworzenia nowych wiadomości przez konta OAuth klient Google musi mieć uprawnienie wysyłania Gmail (`gmail.send`). Jeżeli tego zakresu brakuje, PatMail poprosi o ponowne podłączenie danego konta.
 
 ## Dane lokalne i prywatność
 
@@ -644,7 +652,7 @@ Sekrety i credentiale nie są commitowane do repozytorium. Plik `.env` jest celo
 - OpenAI Chat Completions dla czatu ze skrzynką.
 - OpenAI Responses API z `web_search` dla opcjonalnego Web Research w czacie ze skrzynką.
 - Lokalny endpoint OpenAI-compatible dla lekkiej klasyfikacji maili.
-- SMTP dla odpowiedzi z kont podłączonych przez IMAP.
+- SMTP dla odpowiedzi i nowych wiadomości z kont podłączonych przez IMAP.
 - `electron-builder` do pakowania aplikacji macOS i DMG.
 
 ## Development

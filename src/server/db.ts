@@ -920,12 +920,14 @@ export function getUiState(): UiState {
   const selectedAccountId = (getSetting("uiSelectedAccountId") || "").trim() || null;
   const selectedMessageId = (getSetting("uiSelectedMessageId") || "").trim() || null;
   const profileSidebarWidth = parseProfileSidebarWidth(getSetting("uiProfileSidebarWidth"));
+  const categoryTabOrder = parseJsonListSetting("uiCategoryTabOrder");
   const mailColumnWeights = parseMailColumnWeights(getSetting("uiMailColumnWeights"));
   return {
     selectedCategory,
     selectedAccountId,
     selectedMessageId,
     profileSidebarWidth,
+    categoryTabOrder,
     mailColumnWeights
   };
 }
@@ -943,6 +945,10 @@ export function updateUiState(input: Partial<UiState>) {
   if (input.profileSidebarWidth !== undefined) {
     const width = normalizeProfileSidebarWidth(input.profileSidebarWidth);
     setSetting("uiProfileSidebarWidth", width ? String(width) : "");
+  }
+  if (input.categoryTabOrder !== undefined) {
+    const categoryTabOrder = [...new Set(input.categoryTabOrder.map(category => category.trim()).filter(Boolean))];
+    setSetting("uiCategoryTabOrder", JSON.stringify(categoryTabOrder));
   }
   if (input.mailColumnWeights !== undefined) {
     const weights = normalizeMailColumnWeights(input.mailColumnWeights);
@@ -1438,6 +1444,55 @@ export function searchMailItems(query: string, options: { limit?: number } = {})
     }
   }
   return searchMailItemsWithLike(profileId, searchQuery, limit);
+}
+
+export function upsertMailCache(input: {
+  profileId: string;
+  accountId: string;
+  messageId: string;
+  threadId: string;
+  fromEmail: string;
+  fromName: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  text: string;
+  html: string;
+  isUnread: boolean;
+}) {
+  db.prepare(`
+    INSERT INTO mail_cache(
+      id, profile_id, account_id, message_id, thread_id, from_email, from_name, subject, snippet,
+      received_at, text, html, is_unread, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(account_id, message_id) DO UPDATE SET
+      profile_id = excluded.profile_id,
+      thread_id = excluded.thread_id,
+      from_email = excluded.from_email,
+      from_name = excluded.from_name,
+      subject = excluded.subject,
+      snippet = excluded.snippet,
+      received_at = excluded.received_at,
+      text = excluded.text,
+      html = excluded.html,
+      is_unread = excluded.is_unread
+  `).run(
+    randomUUID(),
+    input.profileId,
+    input.accountId,
+    input.messageId,
+    input.threadId,
+    input.fromEmail,
+    input.fromName,
+    input.subject,
+    input.snippet,
+    input.receivedAt,
+    input.text,
+    input.html,
+    input.isUnread ? 1 : 0,
+    now()
+  );
 }
 
 function searchMailItemsWithLike(profileId: string, query: string, limit: number) {

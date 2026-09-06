@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { reorderCategoryKeys } from "./categoryOrder";
 import "./styles.css";
 
 const IMPORTANT_PAGE_SIZE = 10;
@@ -16,6 +17,11 @@ const MIN_MAIL_COLUMN_WIDTHS = {
 const DEFAULT_PROFILE_SIDEBAR_WIDTH = 240;
 const MIN_PROFILE_SIDEBAR_WIDTH = 180;
 const MAX_PROFILE_SIDEBAR_WIDTH = 560;
+const MAX_PASTED_IMAGE_COUNT = 6;
+const MAX_PASTED_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_COUNT = 10;
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const MAX_MESSAGE_FILES_TOTAL_BYTES = 20 * 1024 * 1024;
 
 type MailColumnWeights = typeof DEFAULT_MAIL_COLUMN_WEIGHTS;
 
@@ -60,6 +66,25 @@ type Account = {
   createdAt: string;
   updatedAt: string;
 };
+
+type ComposeDraft = {
+  accountId: string;
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+};
+
+type PastedImage = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  data: string;
+};
+
+type SelectedAttachment = PastedImage;
 
 type Profile = {
   id: string;
@@ -188,6 +213,7 @@ type UiState = {
   selectedAccountId: string | null;
   selectedMessageId: string | null;
   profileSidebarWidth: number | null;
+  categoryTabOrder: string[];
   mailColumnWeights: MailColumnWeights | null;
 };
 
@@ -211,6 +237,37 @@ const TEXT = {
     profileDeleted: "Usunięto przestrzeń: {name}.",
     profileDescription:
       "Profil obejmuje ustawienia, reguły, konta Gmail, dostawców faktur, indeks faktur i lokalny stan poczty.",
+    newEmail: "Nowy e-mail",
+    composeEmail: "Napisz wiadomość",
+    composeEmailHelp: "Wiadomość zostanie wysłana z wybranej skrzynki w aktywnej przestrzeni.",
+    fromMailbox: "Ze skrzynki",
+    ccRecipients: "DW (CC)",
+    bccRecipients: "UDW (BCC)",
+    recipientsPlaceholder: "adres@example.com, drugi@example.com",
+    subject: "Temat",
+    subjectPlaceholder: "Temat wiadomości",
+    messageBody: "Treść",
+    messageBodyPlaceholder: "Napisz wiadomość...",
+    pasteImageHelp: "Wklej obraz ze schowka skrótem Cmd+V. Zostanie pokazany w treści i wysłany jako załącznik.",
+    pastedImages: "Wklejone obrazy",
+    removePastedImage: "Usuń obraz",
+    imagePasteAdded: "Dodano {count} obrazów do wiadomości.",
+    imagePasteUnsupported: "Obsługiwane są obrazy PNG, JPEG, GIF i WebP.",
+    imagePasteCountLimit: "Można wkleić maksymalnie 6 obrazów do jednej wiadomości.",
+    imagePasteSizeLimit: "Pojedynczy obraz może mieć maksymalnie 10 MB, a obrazy i załączniki razem 20 MB.",
+    addAttachments: "Dodaj załączniki",
+    attachmentHelp: "Możesz wybrać do 10 plików. Obrazy i załączniki razem mogą mieć maksymalnie 20 MB.",
+    selectedAttachments: "Wybrane załączniki",
+    removeAttachment: "Usuń załącznik",
+    attachmentAdded: "Dodano {count} załączników do wiadomości.",
+    attachmentCountLimit: "Można dodać maksymalnie 10 załączników do jednej wiadomości.",
+    attachmentSizeLimit: "Pojedynczy załącznik może mieć maksymalnie 20 MB, a obrazy i załączniki razem 20 MB.",
+    attachmentReadError: "Nie udało się odczytać wybranego pliku.",
+    sendEmail: "Wyślij wiadomość",
+    sendingEmail: "Wysyłam...",
+    discardEmail: "Anuluj",
+    noSendingAccounts: "W tej przestrzeni nie ma jeszcze podłączonej skrzynki. Dodaj ją w ustawieniach kont Gmail.",
+    emailSent: "Wiadomość została wysłana z {from} do {count} adresatów.",
     mail: "Poczta",
     archivizer: "Archivizer",
     changeHistory: "Historia zmian",
@@ -341,13 +398,14 @@ const TEXT = {
     undo: "Cofnij",
     importantNow: "Teraz ważne",
     remainingView: "Pozostałe",
-    mailSectionsAria: "Widoki ważnych i pozostałych maili",
+    mailSectionsAria: "Widoki ważnych, pozostałych i zapisanych maili",
     mailSearchResults: "Wyniki wyszukiwania",
     searchMatches: "wyników",
-    searchLocalScope: "Wyniki z lokalnie zsynchronizowanych maili w aktywnym profilu.",
+    searchLocalScope: "Najpierw wyniki lokalne, następnie dopasowania z podłączonych skrzynek; obejmuje maile przeczytane i nieprzeczytane.",
     unreadEntries: "wpisów nieprzeczytanych",
     firstSyncHelp: "Po pierwszym syncu pojawią się tu faktury, terminy płatności, księgowość i sprawy wymagające reakcji.",
     importantCategoriesAria: "Kategorie ważnych maili",
+    categoryDragHint: "Przytrzymaj Command i przeciągnij, aby zmienić kolejność.",
     bulkReadTitle: "Oznacz wszystkie maile widoczne na tej stronie jako przeczytane",
     marking: "Oznaczam...",
     markVisibleRead: "Oznacz widoczne jako przeczytane",
@@ -433,6 +491,37 @@ const TEXT = {
     profileDeleted: "Deleted workspace: {name}.",
     profileDescription:
       "A profile includes settings, rules, Gmail accounts, invoice providers, the invoice index, and local mailbox state.",
+    newEmail: "New email",
+    composeEmail: "Compose message",
+    composeEmailHelp: "The message will be sent from the selected mailbox in the active workspace.",
+    fromMailbox: "From mailbox",
+    ccRecipients: "CC",
+    bccRecipients: "BCC",
+    recipientsPlaceholder: "address@example.com, second@example.com",
+    subject: "Subject",
+    subjectPlaceholder: "Message subject",
+    messageBody: "Message",
+    messageBodyPlaceholder: "Write your message...",
+    pasteImageHelp: "Paste an image from the clipboard with Cmd+V. It will appear inline and also be sent as an attachment.",
+    pastedImages: "Pasted images",
+    removePastedImage: "Remove image",
+    imagePasteAdded: "Added {count} images to the message.",
+    imagePasteUnsupported: "PNG, JPEG, GIF, and WebP images are supported.",
+    imagePasteCountLimit: "You can paste up to 6 images into one message.",
+    imagePasteSizeLimit: "A single image can be up to 10 MB, and images plus attachments together up to 20 MB.",
+    addAttachments: "Add attachments",
+    attachmentHelp: "You can select up to 10 files. Images and attachments together can be up to 20 MB.",
+    selectedAttachments: "Selected attachments",
+    removeAttachment: "Remove attachment",
+    attachmentAdded: "Added {count} attachments to the message.",
+    attachmentCountLimit: "You can add up to 10 attachments to one message.",
+    attachmentSizeLimit: "A single attachment can be up to 20 MB, and images plus attachments together up to 20 MB.",
+    attachmentReadError: "The selected file could not be read.",
+    sendEmail: "Send message",
+    sendingEmail: "Sending...",
+    discardEmail: "Cancel",
+    noSendingAccounts: "This workspace has no connected mailbox yet. Add one in Gmail account settings.",
+    emailSent: "Message sent from {from} to {count} recipients.",
     mail: "Mail",
     archivizer: "Archivizer",
     changeHistory: "Change history",
@@ -562,13 +651,14 @@ const TEXT = {
     undo: "Undo",
     importantNow: "Important now",
     remainingView: "Remaining",
-    mailSectionsAria: "Important and remaining mail views",
+    mailSectionsAria: "Important, remaining, and saved mail views",
     mailSearchResults: "Search results",
     searchMatches: "matches",
-    searchLocalScope: "Results come from locally synchronized mail in the active profile.",
+    searchLocalScope: "Local results appear first, followed by matches from connected mailboxes; read and unread mail are included.",
     unreadEntries: "unread entries",
     firstSyncHelp: "After the first sync, invoices, payment due dates, accounting, and action-required mail will appear here.",
     importantCategoriesAria: "Important mail categories",
+    categoryDragHint: "Hold Command and drag to reorder.",
     bulkReadTitle: "Mark all mail visible on this page as read",
     marking: "Marking...",
     markVisibleRead: "Mark visible as read",
@@ -729,6 +819,7 @@ function App() {
   const [mailSearchResults, setMailSearchResults] = useState<ImportantItem[]>([]);
   const [mailSearchRunning, setMailSearchRunning] = useState(false);
   const [mailSearchError, setMailSearchError] = useState("");
+  const mailSearchRequestId = useRef(0);
   const [importantPage, setImportantPage] = useState(1);
   const [selectedImportantId, setSelectedImportantId] = useState("");
   const [shouldRevealSelectedMail, setShouldRevealSelectedMail] = useState(false);
@@ -736,7 +827,12 @@ function App() {
   const [senderAssignCategory, setSenderAssignCategory] = useState("");
   const [senderAssigning, setSenderAssigning] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [replyImages, setReplyImages] = useState<PastedImage[]>([]);
   const [replySending, setReplySending] = useState(false);
+  const [composeDraft, setComposeDraft] = useState<ComposeDraft>(() => emptyComposeDraft());
+  const [composeImages, setComposeImages] = useState<PastedImage[]>([]);
+  const [composeAttachments, setComposeAttachments] = useState<SelectedAttachment[]>([]);
+  const [composeSending, setComposeSending] = useState(false);
   const [bulkReadRunning, setBulkReadRunning] = useState(false);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [status, setStatus] = useState("");
@@ -744,7 +840,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState("");
   const [selectedProviderId, setSelectedProviderId] = useState("");
-  const [activeView, setActiveView] = useState<"mail" | "archivizer" | "operations">("mail");
+  const [activeView, setActiveView] = useState<"mail" | "archivizer" | "operations" | "compose">("mail");
   const [invoicesExpanded, setInvoicesExpanded] = useState(true);
   const [imapForm, setImapForm] = useState({
     email: "",
@@ -761,11 +857,17 @@ function App() {
   const [mailChatContext, setMailChatContext] = useState<MailChatContext | null>(null);
   const [profileSidebarWidth, setProfileSidebarWidth] = useState(DEFAULT_PROFILE_SIDEBAR_WIDTH);
   const [mailColumnWeights, setMailColumnWeights] = useState<MailColumnWeights>(DEFAULT_MAIL_COLUMN_WEIGHTS);
+  const [categoryTabOrder, setCategoryTabOrder] = useState<string[]>([]);
+  const [draggedCategory, setDraggedCategory] = useState("");
+  const [dragTargetCategory, setDragTargetCategory] = useState("");
   const [operations, setOperations] = useState<MailOperation[]>([]);
   const [operationUndoingId, setOperationUndoingId] = useState("");
   const profileSidebarResizeDrag = useRef<ProfileSidebarResizeDrag | null>(null);
   const importantWorkspaceRef = useRef<HTMLDivElement | null>(null);
   const mailColumnResizeDrag = useRef<MailColumnResizeDrag | null>(null);
+  const draggedCategoryRef = useRef("");
+  const categoryDragPointerId = useRef<number | null>(null);
+  const categoryDragMoved = useRef(false);
   const chatWebSearchDefaultProfileId = useRef("");
   const lastImportantCategory = useRef("");
   const accountEmailById = useMemo(() => {
@@ -829,6 +931,17 @@ function App() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    setComposeDraft(emptyComposeDraft(accounts[0]?.id || ""));
+    setComposeImages([]);
+    setComposeAttachments([]);
+  }, [activeProfileId]);
+
+  useEffect(() => {
+    if (accounts.some(account => account.id === composeDraft.accountId)) return;
+    setComposeDraft(current => ({ ...current, accountId: accounts[0]?.id || "" }));
+  }, [accounts, composeDraft.accountId]);
 
   useEffect(() => {
     setMailChatContext(null);
@@ -916,26 +1029,31 @@ function App() {
   const importantCategories = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of importantItems) counts.set(item.category, (counts.get(item.category) || 0) + 1);
-    return [...counts.entries()].sort((left, right) => right[1] - left[1]);
-  }, [importantItems]);
+    const orderIndexes = new Map(
+      categoryTabOrder.map((category, index) => [normalizeCategoryKey(category), index])
+    );
+    return [...counts.entries()].sort((left, right) => {
+      const leftIndex = orderIndexes.get(normalizeCategoryKey(left[0]));
+      const rightIndex = orderIndexes.get(normalizeCategoryKey(right[0]));
+      if (leftIndex !== undefined && rightIndex !== undefined) return leftIndex - rightIndex;
+      if (leftIndex !== undefined) return -1;
+      if (rightIndex !== undefined) return 1;
+      return right[1] - left[1];
+    });
+  }, [categoryTabOrder, importantItems]);
 
   const categoryTabs = useMemo(() => {
-    return [
-      ...importantCategories.map(([category, count]) => ({
-        key: category,
-        label: category,
-        count
-      })),
-      {
-        key: "zapisane",
-        label: t.saved,
-        count: savedMailItems.length
-      }
-    ];
-  }, [importantCategories, savedMailItems.length, t.saved]);
+    return importantCategories.map(([category, count]) => ({
+      key: category,
+      label: category,
+      count
+    }));
+  }, [importantCategories]);
 
   const isMailSearchActive = mailSearchQuery.trim().length > 0;
   const isRemainingView = !isMailSearchActive && selectedCategory === "pozostałe";
+  const isSavedView = !isMailSearchActive && selectedCategory === "zapisane";
+  const isImportantView = !isMailSearchActive && !isRemainingView && !isSavedView;
 
   const filteredImportantItems = useMemo(() => {
     if (isMailSearchActive) return mailSearchResults;
@@ -958,15 +1076,13 @@ function App() {
   useEffect(() => {
     if (!mailFeedReady) return;
     if (isMailSearchActive) return;
-    if (selectedCategory === "pozostałe") return;
+    if (selectedCategory === "pozostałe" || selectedCategory === "zapisane") return;
     if (selectedCategory && categoryTabs.some(tab => tab.key === selectedCategory)) {
       lastImportantCategory.current = selectedCategory;
       return;
     }
-    const firstImportantCategory = categoryTabs.find(tab => tab.key !== "zapisane")?.key;
-    const fallbackCategory = firstImportantCategory || (savedMailItems.length > 0 ? "zapisane" : "");
-    setSelectedCategory(fallbackCategory || (otherUnreadItems.length > 0 ? "pozostałe" : "zapisane"));
-  }, [categoryTabs, isMailSearchActive, mailFeedReady, otherUnreadItems.length, savedMailItems.length, selectedCategory]);
+    setSelectedCategory(categoryTabs[0]?.key || "");
+  }, [categoryTabs, isMailSearchActive, mailFeedReady, selectedCategory]);
 
   useEffect(() => {
     setImportantPage(1);
@@ -1009,12 +1125,13 @@ function App() {
           selectedAccountId: selectedMail?.accountId || null,
           selectedMessageId: selectedMail?.messageId || null,
           profileSidebarWidth,
+          categoryTabOrder,
           mailColumnWeights
         })
       }).catch(() => {});
     }, 150);
     return () => window.clearTimeout(timeout);
-  }, [mailColumnWeights, mailFeedReady, profileSidebarWidth, uiStateReady, selectedCategory, selectedImportantId]);
+  }, [categoryTabOrder, mailColumnWeights, mailFeedReady, profileSidebarWidth, uiStateReady, selectedCategory, selectedImportantId]);
 
   useEffect(() => {
     if (!selectedImportantId) {
@@ -1043,6 +1160,7 @@ function App() {
 
   useEffect(() => {
     setReplyText("");
+    setReplyImages([]);
     setReplySending(false);
   }, [selectedImportantId]);
 
@@ -1228,24 +1346,43 @@ function App() {
     setMailSearchInput(normalized);
     setMailSearchError("");
     setMailSearchRunning(true);
+    const requestId = ++mailSearchRequestId.current;
     try {
-      const result = await api(`/api/mail/search?q=${encodeURIComponent(normalized)}&limit=100`);
-      const items = (result.items || []) as ImportantItem[];
-      setMailSearchResults(items);
+      const localResult = await api(`/api/mail/search?q=${encodeURIComponent(normalized)}&limit=100`);
+      if (requestId !== mailSearchRequestId.current) return;
+      const localItems = (localResult.items || []) as ImportantItem[];
+      setMailSearchResults(localItems);
       if (options.selectFirst !== false) {
-        setSelectedImportantId(items[0] ? mailKey(items[0]) : "");
+        setSelectedImportantId(localItems[0] ? mailKey(localItems[0]) : "");
         setShouldRevealSelectedMail(false);
       }
+
+      try {
+        const remoteResult = await api(`/api/mail/search/remote?q=${encodeURIComponent(normalized)}&limit=100`);
+        if (requestId !== mailSearchRequestId.current) return;
+        const remoteItems = (remoteResult.items || []) as ImportantItem[];
+        setMailSearchResults(remoteItems);
+        setMailSearchError((remoteResult.warnings || []).join(" "));
+        if (options.selectFirst !== false && !localItems.length && remoteItems[0]) {
+          setSelectedImportantId(mailKey(remoteItems[0]));
+          setShouldRevealSelectedMail(false);
+        }
+      } catch (error) {
+        if (requestId !== mailSearchRequestId.current) return;
+        setMailSearchError(apiErrorMessage(error, language));
+      }
     } catch (error) {
+      if (requestId !== mailSearchRequestId.current) return;
       setMailSearchResults([]);
       setMailSearchError(apiErrorMessage(error, language));
       if (options.selectFirst !== false) setSelectedImportantId("");
     } finally {
-      setMailSearchRunning(false);
+      if (requestId === mailSearchRequestId.current) setMailSearchRunning(false);
     }
   }
 
   function clearMailSearch() {
+    mailSearchRequestId.current += 1;
     setMailSearchInput("");
     setMailSearchQuery("");
     setMailSearchResults([]);
@@ -1278,6 +1415,7 @@ function App() {
     setSelectedCategory(uiState?.selectedCategory || "");
     setProfileSidebarWidth(normalizeProfileSidebarWidth(uiState?.profileSidebarWidth));
     setMailColumnWeights(normalizeMailColumnWeights(uiState?.mailColumnWeights));
+    setCategoryTabOrder(uiState?.categoryTabOrder || []);
     if (uiState?.selectedAccountId && uiState?.selectedMessageId) {
       setSelectedImportantId(mailKey({
         accountId: uiState.selectedAccountId,
@@ -1288,6 +1426,76 @@ function App() {
       setSelectedImportantId("");
       setShouldRevealSelectedMail(false);
     }
+  }
+
+  function startCategoryPointerDrag(event: React.PointerEvent<HTMLButtonElement>, category: string) {
+    if (!event.metaKey || event.button !== 0) return;
+    event.preventDefault();
+    categoryDragPointerId.current = event.pointerId;
+    draggedCategoryRef.current = category;
+    categoryDragMoved.current = false;
+    setDraggedCategory(category);
+    setDragTargetCategory("");
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("category-reorder-active");
+  }
+
+  function moveCategoryPointer(event: React.PointerEvent<HTMLButtonElement>) {
+    if (categoryDragPointerId.current !== event.pointerId || !draggedCategoryRef.current) return;
+    event.preventDefault();
+    const sourceCategory = draggedCategoryRef.current;
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLButtonElement>("[data-category-key]");
+    const targetCategory = target?.dataset.categoryKey || "";
+    if (!target || !targetCategory || sourceCategory === targetCategory) {
+      setDragTargetCategory("");
+      scrollCategoryTabsNearEdge(event.currentTarget, event.clientX);
+      return;
+    }
+    const targetBounds = target.getBoundingClientRect();
+    const orderedCategories = categoryTabs.map(tab => tab.key);
+    const nextOrder = reorderCategoryKeys(
+      orderedCategories,
+      sourceCategory,
+      targetCategory,
+      event.clientX >= targetBounds.left + targetBounds.width / 2
+    );
+    if (nextOrder !== orderedCategories) {
+      categoryDragMoved.current = true;
+      setCategoryTabOrder(nextOrder);
+    }
+    setDragTargetCategory(targetCategory);
+    scrollCategoryTabsNearEdge(event.currentTarget, event.clientX);
+  }
+
+  function finishCategoryPointerDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    if (categoryDragPointerId.current !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    categoryDragPointerId.current = null;
+    draggedCategoryRef.current = "";
+    setDraggedCategory("");
+    setDragTargetCategory("");
+    document.body.classList.remove("category-reorder-active");
+    window.setTimeout(() => {
+      categoryDragMoved.current = false;
+    }, 0);
+  }
+
+  function selectCategoryAfterPointer(event: React.MouseEvent<HTMLButtonElement>, category: string) {
+    if (categoryDragMoved.current) {
+      event.preventDefault();
+      return;
+    }
+    setSelectedCategory(category);
+  }
+
+  function scrollCategoryTabsNearEdge(source: HTMLButtonElement, pointerX: number) {
+    const container = source.closest<HTMLElement>(".category-tabs");
+    if (!container) return;
+    const bounds = container.getBoundingClientRect();
+    if (pointerX < bounds.left + 32) container.scrollLeft -= 16;
+    if (pointerX > bounds.right - 32) container.scrollLeft += 16;
   }
 
   async function switchProfile(profileId: string) {
@@ -1674,8 +1882,8 @@ function App() {
     event.preventDefault();
     if (!selectedImportant || replySending) return;
     const body = replyText.trim();
-    if (!body) {
-      setStatus(language === "en" ? "Write a reply before sending." : "Napisz treść odpowiedzi przed wysłaniem.");
+    if (!body && replyImages.length === 0) {
+      setStatus(language === "en" ? "Write a reply or paste an image before sending." : "Napisz odpowiedź lub wklej obraz przed wysłaniem.");
       return;
     }
 
@@ -1687,10 +1895,12 @@ function App() {
         body: JSON.stringify({
           accountId: selectedImportant.accountId,
           messageId: selectedImportant.messageId,
-          body
+          body,
+          images: serializeMessageFiles(replyImages)
         })
       }) as { to: string; subject: string };
       setReplyText("");
+      setReplyImages([]);
       setStatus(
         language === "en"
           ? `Reply sent to ${result.to}.`
@@ -1700,6 +1910,142 @@ function App() {
       setStatus(apiErrorMessage(error, language));
     } finally {
       setReplySending(false);
+    }
+  }
+
+  async function sendNewEmail(event: React.FormEvent) {
+    event.preventDefault();
+    if (composeSending) return;
+    if (!composeDraft.accountId) {
+      setStatus(t.noSendingAccounts);
+      return;
+    }
+    const to = parseEmailInput(composeDraft.to);
+    if (to.length === 0) {
+      setStatus(language === "en" ? "Enter at least one address in the To field." : "Wpisz co najmniej jeden adres w polu Do.");
+      return;
+    }
+    if (!composeDraft.body.trim() && composeImages.length === 0 && composeAttachments.length === 0) {
+      setStatus(
+        language === "en"
+          ? "Enter the message body, paste an image, or add an attachment."
+          : "Wpisz treść wiadomości, wklej obraz lub dodaj załącznik."
+      );
+      return;
+    }
+
+    setComposeSending(true);
+    setStatus(language === "en" ? "Sending message..." : "Wysyłam wiadomość...");
+    try {
+      const result = await api("/api/mail/send", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: composeDraft.accountId,
+          to,
+          cc: parseEmailInput(composeDraft.cc),
+          bcc: parseEmailInput(composeDraft.bcc),
+          subject: composeDraft.subject,
+          body: composeDraft.body,
+          images: serializeMessageFiles(composeImages),
+          attachments: serializeMessageFiles(composeAttachments)
+        })
+      });
+      const recipientCount = (result.to?.length || 0) + (result.cc?.length || 0) + (result.bcc?.length || 0);
+      setToast(
+        t.emailSent
+          .replace("{from}", result.from || accounts.find(account => account.id === composeDraft.accountId)?.email || "")
+          .replace("{count}", String(recipientCount))
+      );
+      setComposeDraft(emptyComposeDraft(composeDraft.accountId));
+      setComposeImages([]);
+      setComposeAttachments([]);
+      setStatus("");
+      setActiveView("mail");
+    } catch (error) {
+      setStatus(apiErrorMessage(error, language));
+    } finally {
+      setComposeSending(false);
+    }
+  }
+
+  async function pasteMessageImages(
+    event: React.ClipboardEvent<HTMLTextAreaElement>,
+    target: "compose" | "reply"
+  ) {
+    const imageFiles = Array.from(event.clipboardData.items)
+      .filter(item => item.kind === "file" && item.type.toLowerCase().startsWith("image/"))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (imageFiles.length === 0) return;
+
+    event.preventDefault();
+    const existingImages = target === "compose" ? composeImages : replyImages;
+    if (imageFiles.some(file => !isSupportedPastedImage(file.type))) {
+      setStatus(t.imagePasteUnsupported);
+      return;
+    }
+    if (existingImages.length + imageFiles.length > MAX_PASTED_IMAGE_COUNT) {
+      setStatus(t.imagePasteCountLimit);
+      return;
+    }
+    const pastedBytes = imageFiles.reduce((total, file) => total + file.size, 0);
+    const existingBytes = existingImages.reduce((total, image) => total + image.size, 0);
+    const attachmentBytes = target === "compose"
+      ? composeAttachments.reduce((total, attachment) => total + attachment.size, 0)
+      : 0;
+    if (
+      imageFiles.some(file => file.size > MAX_PASTED_IMAGE_BYTES) ||
+      existingBytes + attachmentBytes + pastedBytes > MAX_MESSAGE_FILES_TOTAL_BYTES
+    ) {
+      setStatus(t.imagePasteSizeLimit);
+      return;
+    }
+
+    try {
+      const pastedImages = await Promise.all(
+        imageFiles.map((file, index) => pastedImageFromFile(file, existingImages.length + index))
+      );
+      if (target === "compose") {
+        setComposeImages(current => [...current, ...pastedImages]);
+      } else {
+        setReplyImages(current => [...current, ...pastedImages]);
+      }
+      setStatus(t.imagePasteAdded.replace("{count}", String(pastedImages.length)));
+    } catch (error) {
+      setStatus(apiErrorMessage(error, language));
+    }
+  }
+
+  async function selectComposeAttachments(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files || []);
+    event.currentTarget.value = "";
+    if (files.length === 0) return;
+    if (composeAttachments.length + files.length > MAX_ATTACHMENT_COUNT) {
+      setStatus(t.attachmentCountLimit);
+      return;
+    }
+
+    const selectedBytes = files.reduce((total, file) => total + file.size, 0);
+    const existingBytes = [...composeImages, ...composeAttachments].reduce(
+      (total, file) => total + file.size,
+      0
+    );
+    if (
+      files.some(file => file.size === 0 || file.size > MAX_ATTACHMENT_BYTES) ||
+      existingBytes + selectedBytes > MAX_MESSAGE_FILES_TOTAL_BYTES
+    ) {
+      setStatus(t.attachmentSizeLimit);
+      return;
+    }
+
+    try {
+      const attachments = await Promise.all(
+        files.map((file, index) => messageFileFromFile(file, composeAttachments.length + index))
+      );
+      setComposeAttachments(current => [...current, ...attachments]);
+      setStatus(t.attachmentAdded.replace("{count}", String(attachments.length)));
+    } catch {
+      setStatus(t.attachmentReadError);
     }
   }
 
@@ -1902,6 +2248,14 @@ function App() {
             </button>
           </form>
           <p className="muted">{t.profileDescription}</p>
+          <button
+            className={`button profile-compose-button ${activeView === "compose" ? "accent" : "secondary"}`}
+            onClick={() => setActiveView("compose")}
+            type="button"
+          >
+            <span aria-hidden="true">+</span>
+            <span>{t.newEmail}</span>
+          </button>
         </aside>
         <div
           aria-label={t.resizeProfileSidebar}
@@ -2606,7 +2960,197 @@ function App() {
         </section>
       )}
 
-      {activeView === "operations" ? (
+      {activeView === "compose" ? (
+        <section className="panel compose-view">
+          <div className="section-title">
+            <div>
+              <p className="eyebrow">{t.newEmail}</p>
+              <h2>{t.composeEmail}</h2>
+              <p className="muted">{t.composeEmailHelp}</p>
+            </div>
+          </div>
+          {accounts.length === 0 ? (
+            <div className="compose-empty-state">
+              <p className="muted">{t.noSendingAccounts}</p>
+              <button
+                className="button secondary"
+                onClick={() => {
+                  setSettingsTab("gmail");
+                  setSettingsOpen(true);
+                }}
+                type="button"
+              >
+                {t.gmailAccounts}
+              </button>
+            </div>
+          ) : (
+            <form className="compose-form" onSubmit={sendNewEmail}>
+              <label className="full">
+                {t.fromMailbox}
+                <select
+                  disabled={composeSending}
+                  onChange={event => setComposeDraft(current => ({ ...current, accountId: event.target.value }))}
+                  value={composeDraft.accountId}
+                >
+                  {accounts.map(account => (
+                    <option key={account.id} value={account.id}>
+                      {account.email} · {account.authType === "imap" ? "IMAP/SMTP" : "OAuth"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="full">
+                {t.to}
+                <input
+                  autoComplete="off"
+                  disabled={composeSending}
+                  onChange={event => setComposeDraft(current => ({ ...current, to: event.target.value }))}
+                  placeholder={t.recipientsPlaceholder}
+                  value={composeDraft.to}
+                />
+              </label>
+              <label>
+                {t.ccRecipients}
+                <input
+                  autoComplete="off"
+                  disabled={composeSending}
+                  onChange={event => setComposeDraft(current => ({ ...current, cc: event.target.value }))}
+                  placeholder={t.recipientsPlaceholder}
+                  value={composeDraft.cc}
+                />
+              </label>
+              <label>
+                {t.bccRecipients}
+                <input
+                  autoComplete="off"
+                  disabled={composeSending}
+                  onChange={event => setComposeDraft(current => ({ ...current, bcc: event.target.value }))}
+                  placeholder={t.recipientsPlaceholder}
+                  value={composeDraft.bcc}
+                />
+              </label>
+              <label className="full">
+                {t.subject}
+                <input
+                  disabled={composeSending}
+                  maxLength={500}
+                  onChange={event => setComposeDraft(current => ({ ...current, subject: event.target.value }))}
+                  placeholder={t.subjectPlaceholder}
+                  value={composeDraft.subject}
+                />
+              </label>
+              <label className="full compose-body-field">
+                {t.messageBody}
+                <textarea
+                  disabled={composeSending}
+                  maxLength={100000}
+                  onChange={event => setComposeDraft(current => ({ ...current, body: event.target.value }))}
+                  onPaste={event => void pasteMessageImages(event, "compose")}
+                  placeholder={t.messageBodyPlaceholder}
+                  value={composeDraft.body}
+                />
+                <small>{t.pasteImageHelp}</small>
+              </label>
+              {composeImages.length > 0 && (
+                <section className="pasted-images full" aria-label={t.pastedImages}>
+                  <strong>{t.pastedImages}</strong>
+                  <div className="pasted-image-list">
+                    {composeImages.map(image => (
+                      <figure className="pasted-image" key={image.id}>
+                        <img alt={image.filename} src={pastedImageDataUrl(image)} />
+                        <figcaption>
+                          <span title={image.filename}>{image.filename}</span>
+                          <small>{formatAttachmentSize(image.size)}</small>
+                        </figcaption>
+                        <button
+                          aria-label={`${t.removePastedImage}: ${image.filename}`}
+                          className="pasted-image-remove"
+                          disabled={composeSending}
+                          onClick={() => setComposeImages(current => current.filter(item => item.id !== image.id))}
+                          title={t.removePastedImage}
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </figure>
+                    ))}
+                  </div>
+                </section>
+              )}
+              <section className="compose-attachments full" aria-label={t.selectedAttachments}>
+                <div className="compose-attachments-header">
+                  <div>
+                    <strong>{t.selectedAttachments}</strong>
+                    <small>{t.attachmentHelp}</small>
+                  </div>
+                  <label className={`button secondary attachment-picker${composeSending ? " disabled" : ""}`}>
+                    {t.addAttachments}
+                    <input
+                      aria-label={t.addAttachments}
+                      disabled={composeSending}
+                      multiple
+                      onChange={event => void selectComposeAttachments(event)}
+                      type="file"
+                    />
+                  </label>
+                </div>
+                {composeAttachments.length > 0 && (
+                  <ul className="compose-attachment-list">
+                    {composeAttachments.map(attachment => (
+                      <li key={attachment.id}>
+                        <div className="compose-attachment-meta">
+                          <strong title={attachment.filename}>{attachment.filename}</strong>
+                          <small>
+                            {formatAttachmentSize(attachment.size)}
+                            {attachment.mimeType ? ` · ${attachment.mimeType}` : ""}
+                          </small>
+                        </div>
+                        <button
+                          aria-label={`${t.removeAttachment}: ${attachment.filename}`}
+                          className="small-button"
+                          disabled={composeSending}
+                          onClick={() => setComposeAttachments(current => current.filter(item => item.id !== attachment.id))}
+                          type="button"
+                        >
+                          {t.removeAttachment}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+              <div className="compose-actions full">
+                <button
+                  className="button secondary"
+                  disabled={composeSending}
+                  onClick={() => {
+                    setComposeDraft(emptyComposeDraft(composeDraft.accountId));
+                    setComposeImages([]);
+                    setComposeAttachments([]);
+                    setStatus("");
+                    setActiveView("mail");
+                  }}
+                  type="button"
+                >
+                  {t.discardEmail}
+                </button>
+                <button
+                  className="button accent"
+                  disabled={
+                    composeSending ||
+                    !composeDraft.accountId ||
+                    !composeDraft.to.trim() ||
+                    (!composeDraft.body.trim() && composeImages.length === 0 && composeAttachments.length === 0)
+                  }
+                  type="submit"
+                >
+                  {composeSending ? t.sendingEmail : t.sendEmail}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
+      ) : activeView === "operations" ? (
         <section className="operation-history operation-history-view">
           <div className="section-title">
             <div>
@@ -2710,13 +3254,13 @@ function App() {
             ) : (
               <div className="mail-scope-tabs" role="tablist" aria-label={t.mailSectionsAria}>
                 <button
-                  aria-selected={!isRemainingView}
-                  className={!isRemainingView ? "mail-scope-tab active" : "mail-scope-tab"}
+                  aria-selected={isImportantView}
+                  className={isImportantView ? "mail-scope-tab active" : "mail-scope-tab"}
                   onClick={() => {
                     const rememberedCategory = lastImportantCategory.current;
                     const nextCategory = categoryTabs.some(tab => tab.key === rememberedCategory)
                       ? rememberedCategory
-                      : categoryTabs[0]?.key || "zapisane";
+                      : categoryTabs[0]?.key || "";
                     setSelectedCategory(nextCategory);
                   }}
                   role="tab"
@@ -2735,6 +3279,16 @@ function App() {
                   <span>{t.remainingView}</span>
                   <strong>{otherUnreadItems.length}</strong>
                 </button>
+                <button
+                  aria-selected={isSavedView}
+                  className={isSavedView ? "mail-scope-tab active" : "mail-scope-tab"}
+                  onClick={() => setSelectedCategory("zapisane")}
+                  role="tab"
+                  type="button"
+                >
+                  <span>{displayCategoryLabel(t.saved, language)}</span>
+                  <strong>{savedMailItems.length}</strong>
+                </button>
               </div>
             )}
             <span>
@@ -2748,9 +3302,50 @@ function App() {
           {!isMailSearchActive && importantItems.length === 0 && otherUnreadItems.length === 0 && savedMailItems.length === 0 ? (
             <p className="muted">{t.firstSyncHelp}</p>
           ) : (
+            <>
+              {!isMailSearchActive && (
+                <div className="mail-category-toolbar">
+                  {isImportantView && categoryTabs.length > 0 && (
+                    <div className="category-tabs" role="tablist" aria-label={t.importantCategoriesAria}>
+                      {categoryTabs.map(tab => (
+                        <button
+                          className={[
+                            "category-tab",
+                            tab.key === selectedCategory ? "active" : "",
+                            tab.key === draggedCategory ? "dragging" : "",
+                            tab.key === dragTargetCategory ? "drag-target" : ""
+                          ].filter(Boolean).join(" ")}
+                          data-category-key={tab.key}
+                          key={tab.key}
+                          onClick={event => selectCategoryAfterPointer(event, tab.key)}
+                          onPointerCancel={finishCategoryPointerDrag}
+                          onPointerDown={event => startCategoryPointerDrag(event, tab.key)}
+                          onPointerMove={moveCategoryPointer}
+                          onPointerUp={finishCategoryPointerDrag}
+                          title={t.categoryDragHint}
+                          type="button"
+                        >
+                          <span>{displayCategoryLabel(tab.label, language)}</span>
+                          <strong>{tab.count}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    className="category-tab bulk-read-tab"
+                    disabled={visibleImportantItems.length === 0 || bulkReadRunning}
+                    onClick={() => void markVisibleMailRead()}
+                    title={t.bulkReadTitle}
+                    type="button"
+                  >
+                    <span aria-hidden="true">✓</span>
+                    <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
+                  </button>
+                </div>
+              )}
             <div className="important-workspace" ref={importantWorkspaceRef} style={mailColumnStyle}>
               <div className="important-list-pane">
-                {isMailSearchActive ? (
+                {isMailSearchActive && (
                   <div className="search-results-toolbar">
                     <div>
                       <strong>{mailSearchQuery}</strong>
@@ -2771,32 +3366,8 @@ function App() {
                       <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
                     </button>
                   </div>
-	                ) : (
-	                <div className="category-tabs" role="tablist" aria-label={t.importantCategoriesAria}>
-	                  {!isRemainingView && categoryTabs.map(tab => (
-	                    <button
-	                      className={tab.key === selectedCategory ? "category-tab active" : "category-tab"}
-	                      key={tab.key}
-	                      onClick={() => setSelectedCategory(tab.key)}
-	                      type="button"
-	                    >
-	                      <span>{displayCategoryLabel(tab.label, language)}</span>
-	                      <strong>{tab.count}</strong>
-	                    </button>
-	                  ))}
-	                  <button
-	                    className="category-tab bulk-read-tab"
-	                    disabled={visibleImportantItems.length === 0 || bulkReadRunning}
-	                    onClick={() => void markVisibleMailRead()}
-	                    title={t.bulkReadTitle}
-	                    type="button"
-	                  >
-	                    <span aria-hidden="true">✓</span>
-	                    <span>{bulkReadRunning ? t.marking : t.markVisibleRead}</span>
-	                  </button>
-	                </div>
-	              )}
-              <div className="feed-list">
+                )}
+                <div className="feed-list">
                 {visibleImportantItems.map(item => {
                   const title = localizeServerMessage(item.subject || item.summary || item.snippet, language);
                   const summary = localizeServerMessage(item.summary, language);
@@ -3017,14 +3588,42 @@ function App() {
                     <textarea
                       disabled={replySending}
                       onChange={event => setReplyText(event.target.value)}
+                      onPaste={event => void pasteMessageImages(event, "reply")}
                       placeholder={t.replyPlaceholder}
                       rows={5}
                       value={replyText}
                     />
+                    <small>{t.pasteImageHelp}</small>
+                    {replyImages.length > 0 && (
+                      <section className="pasted-images" aria-label={t.pastedImages}>
+                        <strong>{t.pastedImages}</strong>
+                        <div className="pasted-image-list">
+                          {replyImages.map(image => (
+                            <figure className="pasted-image" key={image.id}>
+                              <img alt={image.filename} src={pastedImageDataUrl(image)} />
+                              <figcaption>
+                                <span title={image.filename}>{image.filename}</span>
+                                <small>{formatAttachmentSize(image.size)}</small>
+                              </figcaption>
+                              <button
+                                aria-label={`${t.removePastedImage}: ${image.filename}`}
+                                className="pasted-image-remove"
+                                disabled={replySending}
+                                onClick={() => setReplyImages(current => current.filter(item => item.id !== image.id))}
+                                title={t.removePastedImage}
+                                type="button"
+                              >
+                                ×
+                              </button>
+                            </figure>
+                          ))}
+                        </div>
+                      </section>
+                    )}
                     <div className="reply-actions">
                       <button
                         className="button accent"
-                        disabled={replySending || !replyText.trim()}
+                        disabled={replySending || (!replyText.trim() && replyImages.length === 0)}
                         type="submit"
                       >
                         {replySending ? t.sendingReply : t.sendReply}
@@ -3107,7 +3706,8 @@ function App() {
                 )}
               </div>
             </aside>
-          </div>
+            </div>
+            </>
         )}
       </section>
 
@@ -3303,6 +3903,77 @@ function parseSettingsList(value: string | string[]) {
   return serialized
     .split(/\n|,/)
     .map(item => item.trim())
+    .filter(Boolean);
+}
+
+function emptyComposeDraft(accountId = ""): ComposeDraft {
+  return {
+    accountId,
+    to: "",
+    cc: "",
+    bcc: "",
+    subject: "",
+    body: ""
+  };
+}
+
+function isSupportedPastedImage(mimeType: string) {
+  return /^(image\/(png|jpeg|gif|webp))$/i.test(mimeType);
+}
+
+async function pastedImageFromFile(file: File, index: number): Promise<PastedImage> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex < 0) throw new Error("Nie udało się odczytać wklejonego obrazu.");
+  const mimeType = file.type.toLowerCase();
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType.slice("image/".length);
+  return {
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${index}`,
+    filename: file.name || `pasted-image-${index + 1}.${extension}`,
+    mimeType,
+    size: file.size,
+    data: dataUrl.slice(commaIndex + 1)
+  };
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("Nie udało się odczytać wklejonego obrazu."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function serializeMessageFiles(files: Array<PastedImage | SelectedAttachment>) {
+  return files.map(file => ({
+    filename: file.filename,
+    mimeType: file.mimeType,
+    data: file.data
+  }));
+}
+
+async function messageFileFromFile(file: File, index: number): Promise<SelectedAttachment> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex < 0) throw new Error("Nie udało się odczytać wybranego pliku.");
+  return {
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${index}`,
+    filename: file.name || `attachment-${index + 1}`,
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    data: dataUrl.slice(commaIndex + 1)
+  };
+}
+
+function pastedImageDataUrl(image: PastedImage) {
+  return `data:${image.mimeType};base64,${image.data}`;
+}
+
+function parseEmailInput(value: string) {
+  return value
+    .split(/[;,\n]/)
+    .map(address => address.trim())
     .filter(Boolean);
 }
 
