@@ -168,6 +168,7 @@ Features:
 - Attachment section above the email body with open/download actions.
 - Selected-mail AI actions: summarize the current message or use it as context for the next chat question.
 - Reply composer below the selected message preview.
+- Full conversation for the selected email, including sent replies, shown newest first with each message's sender, date, body, and attachments. Gmail uses its thread ID; IMAP uses server thread IDs where available and message-reference headers otherwise.
 - New-message composer opened from the workspace sidebar, with mailbox selection and To, CC, BCC, subject, and plain-text body fields.
 - Clipboard images can be pasted into both composers with `Cmd+V`, previewed, removed before sending, and delivered as inline MIME images that are also visible as attachments. PNG, JPEG, GIF, and WebP are supported.
 - The new-message composer also supports selecting up to 10 regular file attachments, reviewing their names and sizes, and removing individual files before sending. Pasted images and selected attachments share a 20 MB total limit.
@@ -346,7 +347,7 @@ The macOS app and DMG are generated under:
 
 ```text
 release/mac-arm64/PatMail.app
-release/PatMail-0.1.2-arm64.dmg
+release/PatMail-0.1.7-arm64.dmg
 ```
 
 ## Release Notes
@@ -529,6 +530,7 @@ Funkcje:
 - Sekcja załączników nad treścią maila z akcjami otwórz/pobierz.
 - Akcje AI dla wybranego maila: streszczenie aktualnej wiadomości albo użycie jej jako kontekstu dla kolejnego pytania.
 - Okno odpowiedzi pod podglądem wybranej wiadomości.
+- Pełny wątek wybranego maila, wraz z wysłanymi odpowiedziami, od najnowszej wiadomości do najstarszej; każda pokazuje nadawcę, datę, treść i załączniki. Gmail używa identyfikatora wątku, a IMAP identyfikatora serwera lub nagłówków odpowiedzi.
 - Kompozytor nowej wiadomości otwierany z panelu przestrzeni, z wyborem skrzynki oraz polami Do, DW (CC), UDW (BCC), temat i treść tekstowa.
 - W obu kompozytorach można wkleić obraz ze schowka przez `Cmd+V`, zobaczyć miniaturę, usunąć go przed wysłaniem i wysłać jako obraz MIME widoczny w treści oraz jako załącznik. Obsługiwane są PNG, JPEG, GIF i WebP.
 - Kompozytor nowej wiadomości pozwala też wybrać do 10 zwykłych plików, sprawdzić ich nazwy i rozmiary oraz osobno usunąć każdy załącznik przed wysłaniem. Wklejone obrazy i wybrane załączniki mają wspólny limit 20 MB.
@@ -707,7 +709,7 @@ Artefakty macOS powstają tutaj:
 
 ```text
 release/mac-arm64/PatMail.app
-release/PatMail-0.1.2-arm64.dmg
+release/PatMail-0.1.7-arm64.dmg
 ```
 
 ## Uwagi o release

@@ -4,6 +4,7 @@ import { simpleParser, type ParsedMail } from "mailparser";
 import { normalizeHtml, normalizeWhitespace, sanitizeEmailHtml } from "./gmail.js";
 import type { GmailAccount, ImapAccountConfig } from "./types.js";
 import type { GmailAttachmentMeta, ParsedGmailMessage } from "./gmail.js";
+import { relatedMessagesByHeaders } from "./mailThread.js";
 
 type ImapMessageRef = {
   mailbox: string;
@@ -81,6 +82,62 @@ export async function getImapParsedMessage(account: GmailAccount, messageId: str
     const id = encodeImapMessageId({ mailbox, uidValidity, uid: fetched.uid || ref.uid });
     return parsedMailToMessage(parsed, fetched, id);
   });
+}
+
+export async function getImapThreadMessages(account: GmailAccount, selected: ParsedGmailMessage) {
+  const ref = decodeImapMessageId(selected.id);
+  const config = parseImapConfig(account);
+  const client = createClient(config, account.email);
+  const messages: ParsedGmailMessage[] = [selected];
+
+  try {
+    await runImapOperation(client, account.email, "łączenie z IMAP", () => client.connect());
+    const boxes = await runImapOperation(client, account.email, "lista folderów IMAP", () => client.list());
+    const allMail = boxes.find(box => box.specialUse === "\\All" || box.flags.has("\\All"));
+    const sent = boxes.find(box => box.specialUse === "\\Sent" || box.flags.has("\\Sent"))
+      || boxes.find(box => /(^|[\\/])sent( mail)?$|wysłane/i.test(box.path));
+    const mailboxes = [...new Set(allMail
+      ? [allMail.path, ref.mailbox]
+      : [ref.mailbox, sent?.path].filter((mailbox): mailbox is string => Boolean(mailbox)))];
+    const canSearchThread = Boolean(selected.threadId && selected.threadId !== selected.id)
+      && (client.capabilities.has("X-GM-EXT-1") || client.capabilities.has("OBJECTID"));
+    const subject = selected.headers.subject?.replace(/^(?:(?:re|odp|fw|fwd)\s*:\s*)+/gi, "").trim();
+
+    for (const mailbox of mailboxes) {
+      try {
+        const opened = await runImapOperation(client, account.email, "otwieranie folderu IMAP", () =>
+          client.mailboxOpen(mailbox)
+        );
+        const search = canSearchThread
+          ? { threadId: selected.threadId }
+          : subject ? { subject } : null;
+        if (!search) continue;
+        const uids = await runImapOperation(client, account.email, "wyszukiwanie wątku IMAP", () =>
+          client.search(search, { uid: true })
+        );
+        if (!Array.isArray(uids) || uids.length === 0) continue;
+
+        const uidSet = uids.sort((left, right) => right - left).slice(0, 200).join(",");
+        for await (const fetched of client.fetch(
+          uidSet,
+          { source: true, uid: true, flags: true, internalDate: true, threadId: true },
+          { uid: true }
+        )) {
+          const parsed = await simpleParser(fetched.source || Buffer.alloc(0));
+          const id = encodeImapMessageId({ mailbox, uidValidity: String(opened.uidValidity), uid: fetched.uid });
+          messages.push(parsedMailToMessage(parsed, fetched, id));
+        }
+      } catch (error) {
+        if (mailbox === ref.mailbox && messages.length === 1) throw error;
+      }
+    }
+
+    return canSearchThread ? messages : relatedMessagesByHeaders(selected, messages);
+  } catch (error) {
+    throw normalizeImapError((client as PatMailImapClient).patMailLastError || error, account.email);
+  } finally {
+    await closeClient(client);
+  }
 }
 
 export async function getImapParsedMessages(account: GmailAccount, messageIds: string[]) {

@@ -156,6 +156,18 @@ type ImportantDetail = ImportantItem & {
   attachments: MailAttachment[];
 };
 
+type ThreadMessage = {
+  id: string;
+  accountId: string;
+  from: string;
+  to: string;
+  subject: string;
+  receivedAt: string;
+  text: string;
+  html: string;
+  attachments: MailAttachment[];
+};
+
 type CleanupResult = {
   checkedSavedFiles: number;
   removedMissingFileRows: number;
@@ -439,6 +451,11 @@ const TEXT = {
     summarizingSelectedMail: "Streszczam wybrany mail...",
     mailSummaryReady: "Podsumowanie dodane do czatu.",
     attachments: "Załączniki",
+    thread: "Wątek rozmowy",
+    threadLoading: "Wczytuję rozmowę...",
+    threadUnavailable: "Nie udało się pobrać całego wątku. Pokazuję wybraną wiadomość.",
+    refreshThread: "Odśwież wątek",
+    selectedMessage: "Wybrana wiadomość",
     open: "Otwórz",
     download: "Pobierz",
     reply: "Odpowiedz",
@@ -692,6 +709,11 @@ const TEXT = {
     summarizingSelectedMail: "Summarizing the selected email...",
     mailSummaryReady: "Summary added to the chat.",
     attachments: "Attachments",
+    thread: "Conversation",
+    threadLoading: "Loading conversation...",
+    threadUnavailable: "The full conversation could not be loaded. Showing the selected message.",
+    refreshThread: "Refresh conversation",
+    selectedMessage: "Selected message",
     open: "Open",
     download: "Download",
     reply: "Reply",
@@ -824,6 +846,10 @@ function App() {
   const [selectedImportantId, setSelectedImportantId] = useState("");
   const [shouldRevealSelectedMail, setShouldRevealSelectedMail] = useState(false);
   const [selectedImportant, setSelectedImportant] = useState<ImportantDetail | null>(null);
+  const [threadMessages, setThreadMessages] = useState<ThreadMessage[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [threadError, setThreadError] = useState(false);
+  const [threadRefreshKey, setThreadRefreshKey] = useState(0);
   const [senderAssignCategory, setSenderAssignCategory] = useState("");
   const [senderAssigning, setSenderAssigning] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -1145,6 +1171,7 @@ function App() {
       setSelectedImportant(null);
       return;
     }
+    setSelectedImportant(null);
     const { accountId, messageId } = selectedMail;
     api(`/api/mail/detail?accountId=${encodeURIComponent(accountId)}&messageId=${encodeURIComponent(messageId)}`)
       .then(detail => {
@@ -1159,15 +1186,52 @@ function App() {
   }, [selectedImportantId]);
 
   useEffect(() => {
+    setThreadMessages([]);
+    setThreadError(false);
+    const selectedMail = selectedImportantId ? parseMailKey(selectedImportantId) : null;
+    if (!selectedMail) {
+      setThreadLoading(false);
+      return;
+    }
+
+    let alive = true;
+    setThreadLoading(true);
+    api(`/api/mail/thread?accountId=${encodeURIComponent(selectedMail.accountId)}&messageId=${encodeURIComponent(selectedMail.messageId)}`)
+      .then(result => {
+        if (alive) setThreadMessages(result.messages || []);
+      })
+      .catch(() => {
+        if (alive) setThreadError(true);
+      })
+      .finally(() => {
+        if (alive) setThreadLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedImportantId, threadRefreshKey]);
+
+  useEffect(() => {
     setReplyText("");
     setReplyImages([]);
     setReplySending(false);
   }, [selectedImportantId]);
 
-  const selectedImportantBodyHtml = useMemo(() => {
-    if (!selectedImportant) return "";
-    return buildReadableMailHtml(selectedImportant.html, selectedImportant.text || selectedImportant.snippet, t);
-  }, [selectedImportant, t]);
+  const visibleThreadMessages = useMemo(() => {
+    if (threadMessages.length > 0) return threadMessages;
+    if (!selectedImportant || mailKey(selectedImportant) !== selectedImportantId) return [];
+    return [{
+      id: selectedImportant.messageId,
+      accountId: selectedImportant.accountId,
+      from: `${selectedImportant.fromName || selectedImportant.fromEmail} <${selectedImportant.fromEmail}>`,
+      to: accountEmailById.get(selectedImportant.accountId) || "",
+      subject: selectedImportant.subject,
+      receivedAt: selectedImportant.receivedAt,
+      text: selectedImportant.text || selectedImportant.snippet,
+      html: selectedImportant.html,
+      attachments: selectedImportant.attachments
+    }];
+  }, [accountEmailById, selectedImportant, selectedImportantId, threadMessages]);
 
   const visibleChatHistory = useMemo(() => {
     const sorted = sortChatHistoryNewestFirst(chatHistory);
@@ -1901,6 +1965,7 @@ function App() {
       }) as { to: string; subject: string };
       setReplyText("");
       setReplyImages([]);
+      setThreadRefreshKey(current => current + 1);
       setStatus(
         language === "en"
           ? `Reply sent to ${result.to}.`
@@ -3538,46 +3603,69 @@ function App() {
                   {selectedImportant.actionRequired && (
                     <p className="preview-action">{localizeServerMessage(selectedImportant.actionRequired, language)}</p>
                   )}
-                  {selectedImportant.attachments.length > 0 && (
-                    <section className="mail-attachments">
-                      <h4>{t.attachments}</h4>
-                      <ul className="mail-attachments-list">
-                        {selectedImportant.attachments.map(attachment => (
-                          <li key={attachment.attachmentId}>
-                            <div className="mail-attachment-meta">
-                              <strong>{attachment.filename}</strong>
-                              <small>
-                                {formatAttachmentSize(attachment.size)}
-                                {attachment.mimeType ? ` · ${attachment.mimeType}` : ""}
-                              </small>
+                  <section className="mail-thread" aria-label={t.thread}>
+                    <div className="mail-thread-heading">
+                      <h4>{t.thread} ({visibleThreadMessages.length})</h4>
+                      <button
+                        className="small-button"
+                        disabled={threadLoading}
+                        onClick={() => setThreadRefreshKey(current => current + 1)}
+                        type="button"
+                      >
+                        {t.refreshThread}
+                      </button>
+                    </div>
+                    {threadLoading && <p className="muted">{t.threadLoading}</p>}
+                    {threadError && <p className="muted">{t.threadUnavailable}</p>}
+                    <div className="mail-thread-messages">
+                      {visibleThreadMessages.map(message => {
+                        const accountEmail = accountEmailById.get(message.accountId) || "";
+                        const fromIsCurrentAccount = Boolean(accountEmail)
+                          && message.from.toLowerCase().includes(accountEmail.toLowerCase());
+                        return (
+                          <section className="thread-message" key={message.id}>
+                            <div className="thread-message-header">
+                              <div>
+                                <strong>{fromIsCurrentAccount ? t.you : message.from}</strong>
+                                {fromIsCurrentAccount && <small>{message.from}</small>}
+                                {message.to && <small>{t.to}: {message.to}</small>}
+                              </div>
+                              <div className="thread-message-date">
+                                {message.id === selectedImportant.messageId && <span>{t.selectedMessage}</span>}
+                                <time>{formatDateTime(message.receivedAt, language)}</time>
+                              </div>
                             </div>
-                            <div className="mail-attachment-actions">
-                              <a
-                                className="feed-link"
-                                href={mailAttachmentUrl(selectedImportant, attachment)}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                {t.open}
-                              </a>
-                              <a
-                                className="feed-link"
-                                href={mailAttachmentUrl(selectedImportant, attachment, true)}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                {t.download}
-                              </a>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-                  )}
-                  <article
-                    className="mail-body mail-body-reader"
-                    dangerouslySetInnerHTML={{ __html: selectedImportantBodyHtml }}
-                  />
+                            {message.attachments.length > 0 && (
+                              <section className="mail-attachments">
+                                <h4>{t.attachments}</h4>
+                                <ul className="mail-attachments-list">
+                                  {message.attachments.map(attachment => (
+                                    <li key={attachment.attachmentId}>
+                                      <div className="mail-attachment-meta">
+                                        <strong>{attachment.filename}</strong>
+                                        <small>
+                                          {formatAttachmentSize(attachment.size)}
+                                          {attachment.mimeType ? ` · ${attachment.mimeType}` : ""}
+                                        </small>
+                                      </div>
+                                      <div className="mail-attachment-actions">
+                                        <a className="feed-link" href={mailAttachmentUrl({ accountId: message.accountId, messageId: message.id }, attachment)} rel="noreferrer" target="_blank">{t.open}</a>
+                                        <a className="feed-link" href={mailAttachmentUrl({ accountId: message.accountId, messageId: message.id }, attachment, true)} rel="noreferrer" target="_blank">{t.download}</a>
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </section>
+                            )}
+                            <article
+                              className="mail-body mail-body-reader"
+                              dangerouslySetInnerHTML={{ __html: buildReadableMailHtml(message.html, message.text, t) }}
+                            />
+                          </section>
+                        );
+                      })}
+                    </div>
+                  </section>
                   <form className="reply-box" onSubmit={sendReply}>
                     <div className="reply-box-header">
                       <div>

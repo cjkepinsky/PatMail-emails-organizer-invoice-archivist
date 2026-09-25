@@ -59,6 +59,7 @@ import { exchangeCode, getAuthUrl } from "./gmail.js";
 import {
   downloadAccountAttachment,
   getAccountParsedMessage,
+  getAccountThreadMessages,
   isAccountMessageUnread,
   markAccountMessageRead,
   markAccountMessageUnread,
@@ -69,6 +70,7 @@ import {
 import { runInvoiceBackfill } from "./invoiceScanner.js";
 import { getChatContext, runImportantMailSync } from "./mailCopilot.js";
 import { searchMailAcrossAccounts } from "./mailSearch.js";
+import { threadMessageForClient } from "./mailThread.js";
 import { chatWithMailbox, getClassifierStatus, getLlmStatus } from "./llm.js";
 import type { AttachmentInput, InlineImageInput } from "./mailMime.js";
 import type { ReadOperationSnapshot } from "./types.js";
@@ -434,6 +436,24 @@ app.get("/api/mail/detail", async (req, res) => {
     html: row.mail_html ? String(row.mail_html) : "",
     attachments
   });
+});
+
+app.get("/api/mail/thread", async (req, res) => {
+  const language = appLanguage();
+  const accountId = String(req.query.accountId || "");
+  const messageId = String(req.query.messageId || "");
+  if (!accountId || !messageId) return res.status(400).json({ error: t(language, "missingAccountOrMessage") });
+  const account = getAccount(accountId);
+  if (!account) return res.status(404).json({ error: t(language, "mailAccountNotFound") });
+
+  try {
+    const messages = await getAccountThreadMessages(account, messageId);
+    res.json({
+      messages: messages.map(message => threadMessageForClient(accountId, message))
+    });
+  } catch (error) {
+    res.status(500).json({ error: localizeKnownError(error, language) });
+  }
 });
 
 app.get("/api/mail/attachment", async (req, res) => {

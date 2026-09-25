@@ -1,6 +1,7 @@
 import {
   downloadAttachment,
   getParsedMessage,
+  getParsedThread,
   gmailForAccount,
   isMessageUnread,
   listMessageIds,
@@ -12,6 +13,7 @@ import {
   downloadImapAttachment,
   getImapParsedMessage,
   getImapParsedMessages,
+  getImapThreadMessages,
   getImapUnreadStates,
   isImapMessageUnread,
   listImapMessageIds,
@@ -23,6 +25,7 @@ import {
 import { buildReplyMessage } from "./mailReply.js";
 import { buildComposeMessage } from "./mailCompose.js";
 import type { AttachmentInput, InlineImageInput } from "./mailMime.js";
+import { threadMessagesNewestFirst } from "./mailThread.js";
 import { sendSmtpMail, smtpHostForImapHost } from "./smtp.js";
 import type { GmailAccount, ImapAccountConfig } from "./types.js";
 
@@ -39,6 +42,16 @@ export async function listAccountMessageIds(
 export async function getAccountParsedMessage(account: GmailAccount, messageId: string) {
   if (account.authType === "imap") return getImapParsedMessage(account, messageId);
   return getParsedMessage(gmailForAccount(account), messageId);
+}
+
+export async function getAccountThreadMessages(account: GmailAccount, messageId: string) {
+  const selected = await getAccountParsedMessage(account, messageId);
+  const messages = account.authType === "imap"
+    ? await getImapThreadMessages(account, selected)
+    : selected.threadId
+      ? await getParsedThread(gmailForAccount(account), selected.threadId)
+      : [selected];
+  return threadMessagesNewestFirst([selected, ...messages]);
 }
 
 export async function getAccountParsedMessages(account: GmailAccount, messageIds: string[]) {

@@ -111,7 +111,19 @@ export async function getParsedMessage(gmail: gmail_v1.Gmail, id: string): Promi
     id,
     format: "full"
   });
-  const message = response.data;
+  return parseGmailMessage(response.data);
+}
+
+export async function getParsedThread(gmail: gmail_v1.Gmail, threadId: string): Promise<ParsedGmailMessage[]> {
+  const response = await gmail.users.threads.get({
+    userId: "me",
+    id: threadId,
+    format: "full"
+  });
+  return (response.data.messages || []).map(parseGmailMessage);
+}
+
+function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedGmailMessage {
   const headers = Object.fromEntries(
     (message.payload?.headers || []).map(header => [
       header.name?.toLowerCase() || "",
@@ -120,7 +132,7 @@ export async function getParsedMessage(gmail: gmail_v1.Gmail, id: string): Promi
   );
 
   const parsed: ParsedGmailMessage = {
-    id,
+    id: message.id || "",
     threadId: message.threadId || "",
     snippet: message.snippet || "",
     internalDate: message.internalDate || "",
